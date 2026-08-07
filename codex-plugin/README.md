@@ -60,11 +60,13 @@ query-writing contract, result-reading guidance, and the
 "failure is not emptiness" rule are shared with the Claude Code plugin.
 
 **Sync.** A `Stop` hook runs after each turn, cheaply detects which session
-summaries under `~/.codex/memories/` changed (hash comparison, at most five
-uploads per turn, freshest first), and uploads them into a `codex-memories`
-project in your workspace. Aggregate files (`MEMORY.md`, `raw_memories.md`)
-are deliberately not synced — they duplicate the summaries and would re-index
-hundreds of KB on every change.
+summaries under `~/.codex/memories/` changed (hash comparison, ~0.5s), and
+detaches a background worker to upload them into a `codex-memories` project —
+Codex has no async hooks yet, so the hook backgrounds itself rather than
+holding up your next prompt. A failed background sync leaves a marker that the
+next turn's hook reports out loud. Aggregate files (`MEMORY.md`,
+`raw_memories.md`) are deliberately not synced — they duplicate the summaries
+and would re-index hundreds of KB on every change.
 
 **Status.** One line at session start reporting whether Memory Lake is
 reachable — chiefly so an *unreachable* backend is stated out loud instead of
@@ -76,8 +78,8 @@ masquerading as "no such memory".
 | --- | --- | --- |
 | Memory written by | the model, through Write/Edit tool calls | an engine pipeline, no tool calls involved |
 | Write-side hook | `PostToolUse(Write\|Edit)` — intercept the write | `Stop` — scan for changed summary files |
-| Failure reporting | async hook, `exit 2` + stderr wakes the model | `systemMessage` + `exit 0` — **in a Codex `Stop` hook, exit 2 means "continue the turn"**, never use it as an error channel |
-| Async hooks | supported (`asyncRewake`) | not yet supported; `Stop` runs synchronously after the reply, so the user rarely notices |
+| Failure reporting | async hook, `exit 2` + stderr wakes the model | deferred: the background worker leaves a marker, the next turn's hook reports it via `systemMessage` — **in a Codex `Stop` hook, exit 2 means "continue the turn"**, never use it as an error channel |
+| Async hooks | supported (`asyncRewake`) | not supported; the hook detaches its own background worker (`nohup` + lock) and returns in ~0.5s |
 | Read-side nudge | `PreToolUse(Read)` on memory files | none — Codex injects its memory summary itself; the skill covers discovery |
 
 ## Privacy
