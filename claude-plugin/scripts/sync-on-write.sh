@@ -29,6 +29,17 @@
 
 set -uo pipefail
 
+# Cheap pre-filter BEFORE sourcing anything: this script runs on every single
+# tool call its matcher covers, and the overwhelming majority are not memory
+# files. A bash substring check answers that for the cost of process startup
+# alone (~5ms), where source + jq cost ~25ms (measured). The precise path
+# check below still applies; this only rejects obvious non-matches early.
+_raw_input=$(cat)
+case "$_raw_input" in
+  *"/.claude/projects/"*) : ;;
+  *) exit 0 ;;
+esac
+
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
@@ -37,7 +48,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 command -v jq >/dev/null 2>&1 || exit 0
 
-input=$(cat)
+input="$_raw_input"
 file_path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 
