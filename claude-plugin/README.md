@@ -74,12 +74,13 @@ ml-recall "Q4 revenue figures" --top-k 10
 The hook makes no network call — it only injects the reminder, so it adds no
 latency to reading local files.
 
-**Writing.** When Claude saves to its own auto-memory, a hook uploads the
-memory file into a per-project Memory Lake folder and indexes it, so it
-becomes searchable from your other projects, devices, and clients. Rewrites
-with unchanged content are skipped (hash check); content changes re-index the
-document. A failed sync is reported to Claude explicitly — it never
-masquerades as success.
+**Writing.** When Claude saves to its own auto-memory, a background hook
+uploads the memory file into a per-project Memory Lake folder and indexes it,
+so it becomes searchable from your other projects, devices, and clients — with
+zero added latency in the conversation. Rewrites with unchanged content are
+skipped (hash check); content changes re-index the document. A failed sync
+wakes Claude with an explicit report — it never masquerades as success — and
+the next memory write retries the whole chain automatically.
 
 **Session start.** One line reporting whether Memory Lake is reachable. Not a
 digest: a workspace summary would cost tokens in every session, including the

@@ -16,9 +16,16 @@
 # So an update is: overwrite the drive file, delete the old document, import
 # it again, and remember the new doc id in local state.
 #
-# Failure is never silent and never blocking: the local write already
-# succeeded and must stand, so every failure path reports itself through
-# additionalContext instead of a block decision.
+# This hook runs in the BACKGROUND (asyncRewake): a sync taking seconds on a
+# slow network must not stall the conversation — the first-ever sync once blew
+# a 15s synchronous timeout and was killed silently, the exact failure mode
+# the synchronous design was supposed to prevent. The failure contract is now:
+#   - success: exit 0, silently — background work that worked owes no report;
+#   - failure: exit 2 with the reason on stderr, which asyncRewake surfaces to
+#     Claude as a system reminder, so a failed sync is still said out loud.
+# The local write always stands either way; recovery is automatic — the next
+# write of ANY memory file re-runs the full chain (hash mismatch against the
+# unwritten state), and a lost import resolves through the duplicate branch.
 
 set -uo pipefail
 
@@ -47,23 +54,14 @@ CLI=$(ml_cli)
 
 # ---------- reporting --------------------------------------------------------
 
-emit() {
-  jq -n --arg ctx "$1" '{
-    hookSpecificOutput: {
-      hookEventName: "PostToolUse",
-      additionalContext: $ctx
-    }
-  }'
-  exit 0
-}
-
 slug=$(basename -- "$file_path")
 
 # A failed sync must be said out loud: the model just wrote a memory it may
-# reasonably believe is now available everywhere. Silence here would let an
-# outage masquerade as success.
+# reasonably believe is now available everywhere. exit 2 + stderr is the
+# asyncRewake wake-up contract.
 fail() {
-  emit "[Memory Lake] \"$slug\" was saved locally but NOT synced to Memory Lake ($1). It will not be recallable from other projects or devices until a later write retries the sync."
+  printf '[Memory Lake] "%s" was saved locally but NOT synced to Memory Lake (%s). It stays local-only until a later memory write retries the sync automatically; /memorylake:status can check connectivity.\n' "$slug" "$1" >&2
+  exit 2
 }
 
 # ---------- change detection -------------------------------------------------
@@ -96,22 +94,23 @@ fi
 project_id=""
 [ -f "$sync_dir/project_id" ] && project_id=$(cat "$sync_dir/project_id" 2>/dev/null)
 
-if [ -z "$project_id" ]; then
-  project_id=$("$CLI" project get --workspace "$ML_WORKSPACE" "$custom_id" --by-custom-id 2>/dev/null \
-    | jq -r '.id // empty' 2>/dev/null)
-fi
+# Create-first, not get-first: with the state cache above, reaching this point
+# usually means the project does not exist yet, so a lookup would be a wasted
+# round trip on the path that is already the slowest (the first sync ever ran
+# into the hook timeout on a slow network — every round trip here counts).
+# When the project does exist — cache lost, or a concurrent hook won the
+# creation race (custom ids are unique per workspace) — create fails and the
+# lookup below recovers.
 if [ -z "$project_id" ]; then
   project_id=$("$CLI" project create --workspace "$ML_WORKSPACE" \
       --name "$custom_id" --custom-id "$custom_id" 2>/dev/null \
     | jq -r '.id // empty' 2>/dev/null)
-  # The visible-project cache predates this project; left alone it would make
-  # every recall filter the new project OUT until the TTL expires (measured:
-  # the fresh document was simply unfindable). The write path knows the world
-  # changed, so it invalidates rather than waits.
-  rm -f "$(ml_data_dir)/projects/${ML_WORKSPACE}.txt" 2>/dev/null
-  # A concurrent hook may have created it first; custom ids are unique per
-  # workspace, so losing that race shows up here as a failed create.
-  if [ -z "$project_id" ]; then
+  if [ -n "$project_id" ]; then
+    # The visible-project cache predates this project; left alone it would
+    # make every recall filter the new project OUT until the TTL expires
+    # (measured: the fresh document was simply unfindable).
+    rm -f "$(ml_data_dir)/projects/${ML_WORKSPACE}.txt" 2>/dev/null
+  else
     project_id=$("$CLI" project get --workspace "$ML_WORKSPACE" "$custom_id" --by-custom-id 2>/dev/null \
       | jq -r '.id // empty' 2>/dev/null)
   fi
@@ -125,16 +124,12 @@ folder_name="claude-memory--${custom_id}"
 folder_id=""
 [ -f "$sync_dir/folder_id" ] && folder_id=$(cat "$sync_dir/folder_id" 2>/dev/null)
 
-if [ -z "$folder_id" ]; then
-  folder_id=$("$CLI" lib list MY_SPACE 2>/dev/null \
-    | jq -r --arg n "$folder_name" \
-        '(.items // [])[] | select(.name == $n and .type == "directory") | .item_id' 2>/dev/null \
-    | head -n 1)
-fi
+# mkdir-first for the same reason as create-first above: on the cold path the
+# folder usually does not exist, and deny turns "already there" into a cheap
+# failure the listing below recovers from.
 if [ -z "$folder_id" ]; then
   folder_id=$("$CLI" lib mkdir "$folder_name" --on-conflict deny 2>/dev/null \
     | jq -r '.item_id // empty' 2>/dev/null)
-  # Same race as the project: deny means someone else made it; re-list.
   if [ -z "$folder_id" ]; then
     folder_id=$("$CLI" lib list MY_SPACE 2>/dev/null \
       | jq -r --arg n "$folder_name" \
@@ -189,4 +184,5 @@ fi
 jq -n --arg hash "$hash" --arg item "$item_id" --arg doc "$doc_id" \
   '{hash: $hash, item_id: $item, doc_id: $doc}' >"$state_file" 2>/dev/null
 
-emit "[Memory Lake] \"$slug\" synced — it is now recallable from the user's other projects, devices, and clients (indexing may take a moment)."
+# Background success owes no report.
+exit 0

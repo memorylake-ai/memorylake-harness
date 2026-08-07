@@ -31,7 +31,9 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/sync-on-write.sh",
-            "timeout": 15
+            "async": true,
+            "asyncRewake": true,
+            "timeout": 300
           }
         ]
       }
