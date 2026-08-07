@@ -48,13 +48,8 @@ If missing, ask the user (AskUserQuestion) which way to install:
   "$HOME/.claude/memorylake-plugin/bin/memorylake" version
   ```
 
-  If the release lookup 404s: either no release exists yet, or the repository
-  is private (anonymous downloads only work on public repositories). When
-  `gh` is installed and authenticated, retry with it before giving up —
-  `gh api repos/$repo/releases/latest --jq .tag_name` to resolve the tag and
-  `gh release download "$tag" --repo "$repo" --pattern "memorylake-$tag-$target.tar.gz*"`
-  to fetch, then continue from the checksum step unchanged. If that also
-  fails, tell the user plainly and fall through to the next option.
+  If the release lookup 404s, no release has been published yet — tell the
+  user plainly and fall through to the next option.
 
 - **I'll install it myself** — point at the repository
   (`cargo install` from `memorylake-ai/memorylake-cli`, or a package the
