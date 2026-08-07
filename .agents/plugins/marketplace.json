@@ -1,0 +1,14 @@
+{
+  "name": "memorylake",
+  "description": "Memory Lake integrations for coding agents",
+  "owner": {
+    "name": "MemoryLake"
+  },
+  "plugins": [
+    {
+      "name": "memorylake",
+      "source": "./codex-plugin",
+      "description": "Cross-device long-term memory for Codex, backed by Memory Lake"
+    }
+  ]
+}

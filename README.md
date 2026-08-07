@@ -6,7 +6,10 @@ Client-side harnesses that connect coding agents to
 | Harness | Client | Status |
 | --- | --- | --- |
 | [`claude-plugin/`](claude-plugin/) | Claude Code | working — recall on read, sync on write, session status |
-| `codex-plugin/` | Codex | planned |
+| [`codex-plugin/`](codex-plugin/) | Codex | working — recall skill, per-turn memory sync, session status |
+
+Both harnesses share one identity and data tree (`~/.claude/memorylake-plugin/`):
+configure once, use from both clients.
 
 ## Claude Code
 
@@ -18,3 +21,13 @@ Client-side harnesses that connect coding agents to
 
 See [`claude-plugin/README.md`](claude-plugin/README.md) for configuration,
 privacy notes, and design rationale.
+
+## Codex
+
+```
+codex plugin marketplace add memorylake-ai/memorylake-harness
+codex plugin add memorylake@memorylake
+```
+
+Then trust the hooks via `/hooks` inside a Codex session. See
+[`codex-plugin/README.md`](codex-plugin/README.md).

@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# ml-recall — search Memory Lake and print a context-budget-friendly digest.
+#
+# Byte-for-byte logic twin of claude-plugin/bin/ml-recall (that copy is
+# canonical); only this note differs. Kept as a copy because plugins are
+# installed as isolated directory snapshots — a cross-plugin symlink would not
+# survive packaging.
+#
+# A thin wrapper over `memorylake search`. The wrapping exists for one reason:
+# the raw CLI prints the full API payload as pretty JSON, and a single search
+# can run to thousands of tokens. The trimming rules below are inherited from
+# memorylake-mcp, where each one was added after an observed failure:
+#
+#   - facts first: short, directly consumable, and the most likely answer to a
+#     personal/preference question. Models read sequentially.
+#   - file summaries clipped to 120 chars: a full summary lets one irrelevant
+#     hit dominate the model's attention.
+#   - matched spans clipped to 400 chars, at most 3 per document: one document
+#     once yielded five near-1000-char segments and buried the rest.
+#   - empty results carry a hint, never a bare empty list: a bare empty result
+#     invites the model to improvise an answer.
+#   - relevance scores are used for ORDERING ONLY and never shown: they are
+#     weakly calibrated (a measured unrelated hit outscored a genuine one),
+#     and a model shown the number treats it as authority. Hard filtering is
+#     equally off the table — a threshold kills real hits. The model judges
+#     each hit by reading its content, which is the only reliable signal.
+
+set -uo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=../scripts/lib/common.sh
+. "$SCRIPT_DIR/../scripts/lib/common.sh"
+
+PROG=ml-recall
+TOP_K=5
+
+usage() {
+  cat >&2 <<EOF
+usage: $PROG <query> [--top-k N]
+
+Searches Memory Lake for memories written from any project, machine, or client.
+Write the query as statement-style keywords with pronouns resolved and relative
+dates made absolute.
+EOF
+}
+
+# A failed search and an empty search must never look the same. A model that
+# reads "no results" when the backend is actually down will confidently tell
+# the user they never mentioned something they did.
+fail() {
+  printf '%s: %s\n' "$1" "$2" >&2
+  printf 'Memory Lake recall is UNAVAILABLE for this call — do not read this as "no relevant memories". Tell the user the memory backend could not be reached.\n' >&2
+  exit 1
+}
+
+QUERY=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --top-k)
+      [ $# -ge 2 ] || { usage; exit 2; }
+      TOP_K="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      printf '%s: unknown option %s\n' "$PROG" "$1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      [ -z "$QUERY" ] || { printf '%s: pass the query as one quoted argument\n' "$PROG" >&2; exit 2; }
+      QUERY="$1"
+      shift
+      ;;
+  esac
+done
+
+[ -n "$QUERY" ] || { usage; exit 2; }
+
+case "$TOP_K" in
+  ''|*[!0-9]*) printf '%s: --top-k must be a positive integer\n' "$PROG" >&2; exit 2 ;;
+esac
+
+command -v jq >/dev/null 2>&1 || fail MISSING_DEPENDENCY "jq is not installed; install it and retry"
+
+CLI=$(ml_cli)
+[ -n "$CLI" ] || fail CLI_NOT_FOUND "the 'memorylake' binary is not installed; run /memorylake:init to set it up"
+
+ml_load_config "$PWD" || fail NOT_CONFIGURED "no .claude/memorylake.local.md with a workspace in this project; see the plugin README"
+
+# Without --projects the endpoint returns zero document hits, always. See
+# ml_project_ids for the measurement. Facts are unaffected, so a workspace with
+# no projects still searches usefully.
+PROJECTS=$(ml_project_ids)
+if [ -n "$PROJECTS" ]; then
+  raw=$("$CLI" search --workspace "$ML_WORKSPACE" --projects "$PROJECTS" --top-k "$TOP_K" "$QUERY" 2>&1)
+else
+  raw=$("$CLI" search --workspace "$ML_WORKSPACE" --top-k "$TOP_K" "$QUERY" 2>&1)
+fi
+status=$?
+if [ $status -ne 0 ]; then
+  fail UPSTREAM_UNAVAILABLE "$(printf '%s' "$raw" | tail -n 3 | tr '\n' ' ')"
+fi
+
+printf '%s' "$raw" | jq -e . >/dev/null 2>&1 \
+  || fail UNEXPECTED_RESPONSE "the CLI did not return JSON: $(printf '%s' "$raw" | head -c 200)"
+
+printf '%s' "$raw" | jq -r --arg query "$QUERY" '
+  def clip($n): if (. | length) > $n then (.[0:$n] + "…") else . end;
+
+  ( .facts     // [] | sort_by(-(.score // 0)) ) as $facts
+  | ( .documents // [] ) as $docs
+  | if ($facts | length) == 0 and ($docs | length) == 0 then
+      "No Memory Lake matches for: \($query)\n\nRetry ONCE with different wording — entity names, synonyms, statement-style keywords. If still nothing, tell the user honestly; do not invent an answer."
+    else
+      ( if ($facts | length) > 0 then
+          "FACTS (\($facts | length), most relevant first)\n"
+          + ( $facts
+              | map("  - " + ((.fact // "") | clip(300)) + "  [" + (.id // "?") + "]")
+              | join("\n") )
+          + "\n\n  Judge each fact against the question by its content — the list may include unrelated matches.\n"
+        else "" end )
+      + ( if ($docs | length) > 0 then
+            "\nFILES (\($docs | length))\n"
+            + ( $docs
+                | map(
+                    "  " + (.document_name // .file_name // "?")
+                    + ( if (.document_summary // "") != "" then " — " + (.document_summary | clip(120)) else "" end )
+                    + "  [" + (.document_id // "?") + "]"
+                    + ( ( .items // [] )
+                        | map(.text // "" | select(length > 0))
+                        | .[0:3]
+                        | map("\n      \"" + clip(400) + "\"")
+                        | join("") )
+                  )
+                | join("\n") )
+            + "\n"
+          else "" end )
+    end
+'

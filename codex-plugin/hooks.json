@@ -1,0 +1,29 @@
+{
+  "description": "Memory Lake: session status line, background sync of Codex memories.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}\"/scripts/session-start.sh",
+            "statusMessage": "Memory Lake status",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}\"/scripts/sync-memories.sh",
+            "statusMessage": "Syncing memories to Memory Lake",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
