@@ -1,8 +1,13 @@
 ---
 description: Set up Memory Lake for this project — CLI install, login, and config, end to end
+argument-hint: "[github-repo to download the CLI from, e.g. owner/memorylake-cli — defaults to the official repository]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, AskUserQuestion
 ---
+
+Release source for the CLI download: `$ARGUMENTS` if the user passed one,
+otherwise `memorylake-ai/memorylake-cli`. Use that value as `$repo` in the
+download commands below.
 
 Walk the user from a bare plugin install to a working Memory Lake setup. Run
 the stages in order; skip any stage that is already satisfied and say so.
@@ -26,8 +31,7 @@ If missing, ask the user (AskUserQuestion) which way to install:
   automatically:
 
   ```bash
-  # Release source; MEMORYLAKE_CLI_REPO overrides for testing/forks
-  repo="${MEMORYLAKE_CLI_REPO:-memorylake-ai/memorylake-cli}"
+  repo="<release source resolved above>"
   # Detect platform → release target triple
   case "$(uname -sm)" in
     "Darwin arm64")  target=aarch64-apple-darwin ;;
