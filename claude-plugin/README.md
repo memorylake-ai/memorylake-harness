@@ -33,9 +33,11 @@ everywhere else.
 ```
 
 `/memorylake:init` walks through everything: CLI install (if needed), login,
-workspace/actor selection, and writing the project config. To set things up by
-hand instead, create `.claude/memorylake.local.md` in each project that should
-use it:
+workspace/actor selection, and writing the **global** config at
+`~/.claude/memorylake-plugin/config.md` — after which every project on the
+machine can recall and sync, no per-project setup. A project that needs
+different settings (or wants out) adds its own `.claude/memorylake.local.md`,
+which takes precedence:
 
 ```markdown
 ---
@@ -49,9 +51,13 @@ status_line: true
 ---
 ```
 
-`workspace` is the only required field. **Without this file the plugin does
-nothing at all** — no hooks fire, no network calls happen. That is intentional:
-a project that does not use Memory Lake should see no trace of it.
+`workspace` is the only required field. Useful per-project overrides:
+`enabled: false` (opt this project out entirely), `sync_on_write: false`
+(recall works, but this project's memory stays local), `project_custom_id`
+(name the ML project something other than the git repo name).
+
+**With neither a global config nor a project one, the plugin does nothing at
+all** — no hooks fire, no network calls happen.
 
 Add `.claude/*.local.md` to your `.gitignore`.
 
@@ -101,11 +107,13 @@ where Memory Lake would have helped. Ask for a recall directly, or run
 ## Privacy
 
 - `ml-recall` sends your query text to your Memory Lake workspace
-- With `sync_on_write: true`, every memory file Claude writes in this project
-  is uploaded to your Memory Lake workspace — including anything Claude chose
-  to note about the project. Setting that flag is the consent; set it to
-  `false` to keep memory local-only
-- Nothing is sent for projects without a `.claude/memorylake.local.md`
+- With `sync_on_write: true` in the global config, memory files Claude writes
+  in ANY project on this machine are uploaded to your Memory Lake workspace —
+  including anything Claude chose to note about a project. Setting that flag
+  is the consent; opt individual projects out with a
+  `.claude/memorylake.local.md` containing `sync_on_write: false`, or set the
+  global flag to `false` to make syncing opt-in per project
+- Nothing is sent when neither a global nor a project config exists
 - Reading local memory files does **not** send anything — that hook is offline
 
 ## Uninstall

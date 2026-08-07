@@ -71,10 +71,15 @@ ml_flag_enabled() {
   esac
 }
 
-# Locate .claude/memorylake.local.md by walking up from the session cwd.
+# Locate the config: project-level first, then the global default.
 #
-# Walking up rather than reading $cwd/.claude directly means a session started
-# in a subdirectory still finds the repo-root config.
+# The project file is found by walking up from the session cwd, so a session
+# started in a subdirectory still finds the repo-root config. When no project
+# opts in explicitly, the global config written by /memorylake:init applies —
+# workspace and actor are account-level facts, and requiring per-project setup
+# would break the product's core promise: the project where recall matters
+# most is exactly the one that has not been configured yet (observed live:
+# recall failed with NOT_CONFIGURED in every project but the one init ran in).
 ml_find_config() {
   local dir="${1:-$PWD}"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
@@ -84,6 +89,10 @@ ml_find_config() {
     fi
     dir=$(dirname -- "$dir")
   done
+  if [ -f "$(ml_data_dir)/config.md" ]; then
+    printf '%s' "$(ml_data_dir)/config.md"
+    return 0
+  fi
   return 1
 }
 

@@ -81,10 +81,16 @@ Confirm with `memorylake auth status`. Remind the user the key is stored in
 `~/.memorylake/credentials.toml` (file mode 0600), managed by the CLI, not by
 this plugin.
 
-## Stage 3 — Project config
+## Stage 3 — Global config
 
-If `.claude/memorylake.local.md` already exists, show its current values and
-ask whether to keep or rewrite it.
+The config is **global by default**: workspace and actor are account-level
+facts, and recall must work in every project — including ones that never ran
+init. A per-project `.claude/memorylake.local.md` is an optional override
+(different workspace, custom project id, or `sync_on_write: false` /
+`enabled: false` to keep one project local-only or opted out entirely).
+
+If `~/.claude/memorylake-plugin/config.md` already exists, show its current
+values and ask whether to keep or rewrite it.
 
 Otherwise gather the pieces:
 
@@ -93,16 +99,13 @@ Otherwise gather the pieces:
 2. **Actor**: `memorylake actor list --workspace <ws>`. Prefer the HUMAN
    actor bound to the workspace. None bound → offer to create one
    (`memorylake actor create` + `actor bind`).
-3. **Project custom id**: default to the git repo name (or directory name);
-   let the user override.
 
-Write `.claude/memorylake.local.md`:
+Write `~/.claude/memorylake-plugin/config.md`:
 
 ```markdown
 ---
 enabled: true
 workspace: <ws-id>
-project_custom_id: <custom-id>
 actor: <actor-id>
 remind_on_read: true
 sync_on_write: true
@@ -110,11 +113,15 @@ status_line: true
 ---
 ```
 
-Before writing, tell the user what `sync_on_write: true` means: every memory
-file Claude writes in this project is uploaded to their Memory Lake
-workspace. If they prefer local-only memory, set it to `false`.
+No `project_custom_id` in the global config: each project derives it from its
+git repo name automatically, and a project that needs a different one sets it
+in its own `.claude/memorylake.local.md`.
 
-Ensure `.gitignore` covers `.claude/*.local.md`; append it if missing.
+Before writing, tell the user what a global `sync_on_write: true` means:
+memory files Claude writes in ANY project on this machine are uploaded to
+their Memory Lake workspace. Projects can opt out individually with a
+`.claude/memorylake.local.md` containing `sync_on_write: false`, and that
+file should be gitignored (`.claude/*.local.md`).
 
 ## Stage 4 — Verify and hand off
 

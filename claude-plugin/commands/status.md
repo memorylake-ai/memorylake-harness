@@ -39,12 +39,16 @@ Report the profile, base URL, and where each came from. Not logged in →
 
 ## 4. Project config
 
-Read `.claude/memorylake.local.md` from the project root (walk up from the
-working directory if it is not there).
+Two levels, project overrides global:
 
-Report whether it exists, and the values of `enabled`, `workspace`,
-`project_custom_id`, `remind_on_read`, `sync_on_write`, and `status_line`.
-Missing → show the template from the plugin README and offer to write it.
+1. `.claude/memorylake.local.md` from the project root (walk up from the
+   working directory) — optional per-project override
+2. `~/.claude/memorylake-plugin/config.md` — the global default written by
+   `/memorylake:init`
+
+Report which one is in effect and the values of `enabled`, `workspace`,
+`project_custom_id` (project-level only), `remind_on_read`, `sync_on_write`,
+and `status_line`. Neither exists → point at `/memorylake:init`.
 
 `workspace` is the only strictly required field; without it every hook exits
 silently.
