@@ -55,8 +55,10 @@ a project that does not use Memory Lake should see no trace of it.
 
 Add `.claude/*.local.md` to your `.gitignore`.
 
-Hook changes are picked up at session start, so restart Claude Code after
-editing the config.
+Config changes take effect immediately: the hooks re-read
+`.claude/memorylake.local.md` every time they fire, so there is nothing to
+restart after editing it. (Only the session-start status line waits for the
+next session, by definition.)
 
 Run `/memorylake:status` to check the whole setup at once.
 

@@ -132,7 +132,9 @@ error.)
 Finish by telling the user:
 
 - setup is complete, and which pieces were installed vs. already present
-- **hooks load at session start** — restart Claude Code (or run
-  `/reload-plugins`) for the memory sync and reminders to activate
+- memory sync and recall reminders are active from the next memory
+  read/write — the hooks re-read the config every time they fire, so no
+  restart is needed. Only the session status line first appears in the
+  next session
 - `/memorylake:status` is the health check to reach for if anything
   misbehaves later
