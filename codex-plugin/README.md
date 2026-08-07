@@ -27,10 +27,18 @@ Then — **required** — trust the plugin's hooks: run `/hooks` inside a Codex
 session, review the two hooks, and mark them trusted. Non-managed hooks do not
 run until you do; the plugin silently does nothing without it.
 
-If you have not set up Memory Lake before, the fastest path is the Claude Code
-plugin's `/memorylake:init` wizard. By hand instead: install the
-[`memorylake` CLI](https://github.com/memorylake-ai/memorylake-cli), log in
-(`memorylake auth login --api-key sk-...`), and write
+Then set up Memory Lake itself — just ask Codex:
+
+```
+set up memorylake
+```
+
+The bundled `memorylake-setup` skill walks through everything: CLI download,
+login, workspace/actor selection, the global config, and the hook-trust step.
+(If you already ran `/memorylake:init` in Claude Code, it will find everything
+in place — the two plugins share one setup.) To configure by hand instead,
+install the [`memorylake` CLI](https://github.com/memorylake-ai/memorylake-cli),
+log in (`memorylake auth login --api-key sk-...`), and write
 `~/.claude/memorylake-plugin/config.md`:
 
 ```markdown
