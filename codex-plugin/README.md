@@ -82,6 +82,18 @@ masquerading as "no such memory".
 | Async hooks | supported (`asyncRewake`) | not supported; the hook detaches its own background worker (`nohup` + lock) and returns in ~0.5s |
 | Read-side nudge | `PreToolUse(Read)` on memory files | none — Codex injects its memory summary itself; the skill covers discovery |
 
+## Sandbox requirement
+
+`ml-recall` makes a network call, and Codex runs model-generated shell
+commands inside its sandbox. Under `read-only` or `workspace-write` sandboxes
+the call fails at DNS resolution — the plugin reports it correctly
+(`UPSTREAM_UNAVAILABLE`, "do not read this as no relevant memories") rather
+than fabricating an empty result, but recall is effectively unavailable.
+Interactive sessions honor your `config.toml` sandbox setting; `codex exec`
+overrides it with its own default, so pass `--sandbox danger-full-access`
+(or a network-enabled policy) when recall matters in non-interactive runs.
+The sync hooks are unaffected: hooks run outside the command sandbox.
+
 ## Privacy
 
 - With `sync_on_write: true`, Codex session summaries — which describe what
