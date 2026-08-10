@@ -26,7 +26,6 @@ If missing, ask the user (AskUserQuestion) which way to install:
   automatically:
 
   ```bash
-  # TODO: point back at memorylake-ai/memorylake-cli once it publishes releases
   repo="memorylake-ai/memorylake-cli"
   # Detect platform → release target triple
   case "$(uname -sm)" in

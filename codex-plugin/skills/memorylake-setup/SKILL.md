@@ -27,7 +27,6 @@ If found, report the version and move on.
 If missing, ask the user whether to download the prebuilt binary. On yes:
 
 ```bash
-# TODO: point back at memorylake-ai/memorylake-cli once it publishes releases
 repo="memorylake-ai/memorylake-cli"
 case "$(uname -sm)" in
   "Darwin arm64")  target=aarch64-apple-darwin ;;
