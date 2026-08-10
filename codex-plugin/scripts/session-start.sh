@@ -33,7 +33,10 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 # Self-install ml-recall into the shared bin so `<data>/bin/ml-recall` always
 # works, whichever harness installed it first. common.sh rides along because
-# ml-recall sources it relative to its own location.
+# ml-recall sources it relative to its own location. Deliberately BEFORE the
+# config gate: the setup skill's verification stage invokes this path on a
+# machine that has no config yet, and the copy is local, idempotent, and
+# side-effect-free beyond the shared data tree.
 shared_bin="$(ml_data_dir)/bin"
 if [ ! -x "$shared_bin/ml-recall" ] || ! cmp -s "$SCRIPT_DIR/../bin/ml-recall" "$shared_bin/ml-recall" 2>/dev/null; then
   mkdir -p "$shared_bin" "$(ml_data_dir)/scripts/lib" 2>/dev/null
@@ -58,21 +61,26 @@ CACHE_DIR="$(ml_data_dir)/status"
 CACHE_FILE="$CACHE_DIR/${ML_WORKSPACE}.txt"
 CACHE_TTL=600
 
+# The cache stores DATA (the project count), never the rendered line: the data
+# tree is shared with the Claude Code harness, whose status line names a
+# different recall invocation — a cached sentence from one harness served to
+# the other would teach the model a command that does not resolve there.
+projects=""
 if [ -f "$CACHE_FILE" ]; then
   now=$(date +%s)
   mtime=$(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || printf '0')
   if [ $((now - mtime)) -lt $CACHE_TTL ]; then
-    emit "$(cat "$CACHE_FILE")"
+    projects=$(cat "$CACHE_FILE" 2>/dev/null)
+    case "$projects" in *[!0-9]*) projects="" ;; esac
   fi
 fi
 
-projects=$("$CLI" project list --workspace "$ML_WORKSPACE" 2>/dev/null | jq -r '(.items // []) | length' 2>/dev/null)
-
 if [ -z "$projects" ]; then
-  emit "Memory Lake: workspace ${ML_WORKSPACE} is unreachable. Cross-device memory recall is UNAVAILABLE this session — if a recall returns nothing, say the backend could not be reached rather than concluding the memory does not exist."
+  projects=$("$CLI" project list --workspace "$ML_WORKSPACE" 2>/dev/null | jq -r '(.items // []) | length' 2>/dev/null)
+  if [ -z "$projects" ]; then
+    emit "Memory Lake: workspace ${ML_WORKSPACE} is unreachable. Cross-device memory recall is UNAVAILABLE this session — if a recall returns nothing, say the backend could not be reached rather than concluding the memory does not exist."
+  fi
+  mkdir -p "$CACHE_DIR" 2>/dev/null && printf '%s' "$projects" >"$CACHE_FILE" 2>/dev/null
 fi
 
-line="Memory Lake: connected · workspace ${ML_WORKSPACE} · ${projects} project(s). Memories from the user's other devices, projects, and clients (including Claude Code) are searchable with \`${RECALL} \"<query>\"\`."
-
-mkdir -p "$CACHE_DIR" 2>/dev/null && printf '%s' "$line" >"$CACHE_FILE" 2>/dev/null
-emit "$line"
+emit "Memory Lake: connected · workspace ${ML_WORKSPACE} · ${projects} project(s). Memories from the user's other devices, projects, and clients (including Claude Code) are searchable with \`${RECALL} \"<query>\"\`."

@@ -2,11 +2,16 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "memorylake",
   "displayName": "Memory Lake",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cross-device long-term memory for Claude Code, backed by Memory Lake",
   "author": {
     "name": "MemoryLake"
   },
   "license": "MIT",
-  "keywords": ["memory", "recall", "knowledge-base", "memorylake"]
+  "keywords": [
+    "memory",
+    "recall",
+    "knowledge-base",
+    "memorylake"
+  ]
 }

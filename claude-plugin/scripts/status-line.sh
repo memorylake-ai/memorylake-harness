@@ -47,24 +47,27 @@ CACHE_DIR="$(ml_data_dir)/status"
 CACHE_FILE="$CACHE_DIR/${ML_WORKSPACE}.txt"
 CACHE_TTL=600
 
-# A stale-but-recent status is worth far more than a cold network round trip on
-# every single session start.
+# The cache stores DATA (the project count), never the rendered line: the data
+# tree is shared with the Codex harness, whose status line names a different
+# recall invocation — a cached Claude-side sentence served to Codex (or vice
+# versa) would teach the model a command that does not resolve there.
+projects=""
 if [ -f "$CACHE_FILE" ]; then
   now=$(date +%s)
   # stat's flags differ between BSD and GNU; try both rather than assume.
   mtime=$(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || printf '0')
   if [ $((now - mtime)) -lt $CACHE_TTL ]; then
-    emit "$(cat "$CACHE_FILE")"
+    projects=$(cat "$CACHE_FILE" 2>/dev/null)
+    case "$projects" in *[!0-9]*) projects="" ;; esac
   fi
 fi
 
-projects=$("$CLI" project list --workspace "$ML_WORKSPACE" 2>/dev/null | jq -r '(.items // []) | length' 2>/dev/null)
-
 if [ -z "$projects" ]; then
-  emit "Memory Lake: workspace ${ML_WORKSPACE} is unreachable. Memory recall is UNAVAILABLE this session — if a recall returns nothing, say the backend could not be reached rather than concluding the memory does not exist."
+  projects=$("$CLI" project list --workspace "$ML_WORKSPACE" 2>/dev/null | jq -r '(.items // []) | length' 2>/dev/null)
+  if [ -z "$projects" ]; then
+    emit "Memory Lake: workspace ${ML_WORKSPACE} is unreachable. Memory recall is UNAVAILABLE this session — if a recall returns nothing, say the backend could not be reached rather than concluding the memory does not exist."
+  fi
+  mkdir -p "$CACHE_DIR" 2>/dev/null && printf '%s' "$projects" >"$CACHE_FILE" 2>/dev/null
 fi
 
-line="Memory Lake: connected · workspace ${ML_WORKSPACE} · ${projects} project(s). Cross-project and cross-device memories are searchable with \`ml-recall \"<query>\"\`."
-
-mkdir -p "$CACHE_DIR" 2>/dev/null && printf '%s' "$line" >"$CACHE_FILE" 2>/dev/null
-emit "$line"
+emit "Memory Lake: connected · workspace ${ML_WORKSPACE} · ${projects} project(s). Cross-project and cross-device memories are searchable with \`ml-recall \"<query>\"\`."
