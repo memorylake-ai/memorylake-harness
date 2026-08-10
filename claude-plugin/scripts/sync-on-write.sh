@@ -2,9 +2,20 @@
 # PostToolUse(Write|Edit) — sync the just-written memory file up to Memory Lake.
 #
 # The model is the author; this hook is only a courier. It reads the final
-# file from disk (never tool_input: Edit carries only old/new fragments),
-# uploads it into a per-project Library folder, and imports it into the
-# matching ML project so it becomes searchable from every other device.
+# file from disk (never tool_input: Edit carries only old/new fragments) and
+# routes it by mutability and recall latency (the memory type encodes both):
+#
+#   - type user/feedback → a FACT, from the frontmatter `description`. Facts
+#     are searchable the moment they are stored — no cook step — which is what
+#     a preference needs: "remember I use vim" must be recallable in the very
+#     next question. The description IS the atomic statement (both memory
+#     systems share that writing convention), and semantic conflicts between
+#     facts are the backend's job, so an update is simply storing the new
+#     statement.
+#   - type project/reference (or no type) → a FILE, uploaded into a
+#     per-project Library folder and imported into the matching ML project.
+#     Long evolving bodies belong in documents; the indexing delay is the
+#     price of full-text.
 #
 # Update semantics are the measured ones, not the assumed ones (2026-08-07):
 #   - `lib upload --on-conflict overwrite` keeps the item_id but does NOT
@@ -99,6 +110,35 @@ fi
 # Claude Code rewrites memory files without changing them (index maintenance,
 # frontmatter touch-ups); syncing those would re-index a document for nothing.
 [ "$hash" = "$prev_hash" ] && exit 0
+
+# ---------- route by memory type -----------------------------------------------
+
+mem_type=$(ml_frontmatter_get "$file_path" type)
+description=$(ml_frontmatter_get "$file_path" description)
+
+case "$mem_type" in
+  user|feedback)
+    # Fact fast path — but only when it is actually available: it needs an
+    # actor to own the fact and a description to store. Missing either falls
+    # through to the file path below rather than dropping the memory.
+    if [ -n "${ML_ACTOR:-}" ] && [ -n "$description" ]; then
+      desc_hash=$(printf '%s' "$description" | shasum -a 256 | cut -d' ' -f1)
+      prev_desc_hash=""
+      [ -f "$state_file" ] && prev_desc_hash=$(jq -r '.desc_hash // empty' "$state_file" 2>/dev/null)
+      if [ "$desc_hash" = "$prev_desc_hash" ]; then
+        # The body changed but the statement did not (a Why/How touch-up).
+        # Nothing new to say to the fact store; just remember the new file
+        # hash so the next unchanged rewrite short-circuits earlier.
+        jq -n --arg hash "$hash" --arg dh "$desc_hash"             --arg fid "$(jq -r '.fact_id // empty' "$state_file" 2>/dev/null)"           '{hash: $hash, kind: "fact", fact_id: $fid, desc_hash: $dh}' >"$state_file" 2>/dev/null
+        exit 0
+      fi
+      fact_id=$("$CLI" fact add --workspace "$ML_WORKSPACE" --actor "$ML_ACTOR"           "$description" 2>/dev/null         | jq -r '(.facts // [])[0].id // empty' 2>/dev/null)
+      [ -n "$fact_id" ] || fail "storing the fact failed"
+      jq -n --arg hash "$hash" --arg fid "$fact_id" --arg dh "$desc_hash"         '{hash: $hash, kind: "fact", fact_id: $fid, desc_hash: $dh}' >"$state_file" 2>/dev/null
+      exit 0
+    fi
+    ;;
+esac
 
 # ---------- ensure the ML project exists -------------------------------------
 
