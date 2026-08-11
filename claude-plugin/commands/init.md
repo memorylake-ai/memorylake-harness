@@ -118,9 +118,12 @@ in its own `.claude/memorylake.local.md`.
 
 Before writing, tell the user what a global `sync_on_write: true` means:
 memory files Claude writes in ANY project on this machine are uploaded to
-their Memory Lake workspace. Projects can opt out individually with a
-`.claude/memorylake.local.md` containing `sync_on_write: false`, and that
-file should be gitignored (`.claude/*.local.md`).
+their Memory Lake workspace. Then ask whether any directories should be
+excluded (work code, client projects); write them as comma-separated path
+prefixes in a `sync_deny` field, e.g. `sync_deny: ~/work, ~/clients`.
+Projects can also opt out individually with a `.claude/memorylake.local.md`
+containing `sync_on_write: false` (gitignored via `.claude/*.local.md`), and
+`/memorylake:sync off` does that for the current project.
 
 ## Stage 4 — Verify and hand off
 

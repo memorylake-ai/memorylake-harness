@@ -69,5 +69,21 @@ this project's memory directory is synced up to Memory Lake automatically, so
 it becomes available from the user's other projects and devices. There is no
 separate "save to Memory Lake" step.
 
+## Controlling which projects sync
+
+When the user asks to stop (or resume) memory uploads for a project, act on it
+directly — the config is re-read on every hook invocation, so changes apply
+from the next memory write:
+
+- **This project**: set `sync_on_write: false` (or `true`) in the repo-root
+  `.claude/memorylake.local.md`, preserving other keys; keep the file
+  gitignored. The `/memorylake:sync` command does the same with a paper trail.
+- **A whole directory of projects** ("nothing under ~/work"): add the path
+  prefix to `sync_deny` (comma-separated) in
+  `~/.claude/memorylake-plugin/config.md`.
+- Precedence: explicit project `sync_on_write` > global `sync_deny` > global
+  default. Recall keeps working in denied projects — the switch only governs
+  uploads. Already-uploaded memories are not recalled by turning sync off.
+
 Write facts the way both systems expect: one atomic statement per memory,
 entities resolved, absolute dates.

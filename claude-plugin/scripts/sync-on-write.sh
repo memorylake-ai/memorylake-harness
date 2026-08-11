@@ -71,6 +71,19 @@ ml_is_memory_index "$file_path" && exit 0
 ml_load_config "${cwd:-$PWD}" || exit 0
 ml_flag_enabled "${ML_SYNC_ON_WRITE:-}" || exit 0
 
+# Global sync_deny gate, placed BEFORE the fact/file routing so a denied
+# project uploads nothing on either path. Precedence is most-specific-wins:
+# the deny list only yields to a project config file that EXPLICITLY sets
+# sync_on_write (a project file that merely exists, or sets other keys, has
+# not spoken on the matter).
+if ml_sync_denied "${cwd:-$PWD}"; then
+  project_says=""
+  [ -n "${ML_PROJECT_CONFIG:-}" ] && project_says=$(ml_frontmatter_get "$ML_PROJECT_CONFIG" sync_on_write)
+  [ -n "$project_says" ] || exit 0
+  # A non-empty value that was false already exited at the flag check above,
+  # so reaching here means the project file explicitly said true — exempt.
+fi
+
 CLI=$(ml_cli)
 [ -n "$CLI" ] || exit 0
 

@@ -56,6 +56,28 @@ status_line: true
 (recall works, but this project's memory stays local), `project_custom_id`
 (name the ML project something other than the git repo name).
 
+### Choosing which projects sync
+
+Three layers, most specific wins:
+
+1. **Project file**: `sync_on_write: true|false` in the repo's
+   `.claude/memorylake.local.md` — the final word for that project.
+   `/memorylake:sync off` (or just asking Claude) writes it for you
+2. **Global `sync_deny`**: comma-separated path prefixes in the global config
+   — `sync_deny: ~/work, ~/clients` keeps every project under those paths
+   from uploading. A project file that exists but does not set
+   `sync_on_write` does not override the deny list
+3. **Global `sync_on_write`**: the machine-wide default. Set it to `false`
+   for opt-in mode, where only projects with an explicit project-file `true`
+   upload
+
+The switch governs uploads only — recall works everywhere. It is also not
+retroactive: memories already uploaded stay until deleted server-side. The
+session status line announces the first-ever sync for each project, so
+uploading never starts silently. Codex-side sync has no per-project control
+(session summaries cannot be reliably attributed to a project after the
+fact); the deny list applies to Claude Code memories only.
+
 **With neither a global config nor a project one, the plugin does nothing at
 all** — no hooks fire, no network calls happen.
 

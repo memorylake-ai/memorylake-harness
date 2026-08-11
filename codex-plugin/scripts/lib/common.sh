@@ -62,41 +62,55 @@ ml_flag_enabled() {
   esac
 }
 
-# Locate the config: project-level first, then the shared global default.
-ml_find_config() {
-  local dir="${1:-$PWD}"
+# Read one key with project-over-global precedence.
+#
+# Callers set ML_PROJECT_CONFIG / ML_GLOBAL_CONFIG (either may be empty).
+ml_cfg_get() {
+  local key="$1" v=""
+  [ -n "${ML_PROJECT_CONFIG:-}" ] && v=$(ml_frontmatter_get "$ML_PROJECT_CONFIG" "$key")
+  if [ -z "$v" ] && [ -n "${ML_GLOBAL_CONFIG:-}" ]; then
+    v=$(ml_frontmatter_get "$ML_GLOBAL_CONFIG" "$key")
+  fi
+  printf '%s' "$v"
+}
+
+# Populate ML_* by MERGING the two config layers, or return non-zero to mean
+# "not configured" — which every caller treats as "exit 0, do nothing".
+#
+# Merging, not shadowing: a project file exists to override a field or two
+# (sync_on_write: false is the canonical case) and must not have to repeat
+# workspace and actor to stay functional. Before this, a one-line project
+# file silently knocked out the whole config — recall included — because the
+# project file replaced the global one wholesale and then failed the
+# workspace check (found while testing the sync_deny override path).
+ml_load_config() {
+  local cwd="${1:-$PWD}" dir
+  ML_PROJECT_CONFIG=""
+  ML_GLOBAL_CONFIG=""
+  dir="$cwd"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
     if [ -f "$dir/.claude/memorylake.local.md" ]; then
-      printf '%s' "$dir/.claude/memorylake.local.md"
-      return 0
+      ML_PROJECT_CONFIG="$dir/.claude/memorylake.local.md"
+      break
     fi
     dir=$(dirname -- "$dir")
   done
-  if [ -f "$(ml_data_dir)/config.md" ]; then
-    printf '%s' "$(ml_data_dir)/config.md"
-    return 0
-  fi
-  return 1
-}
+  [ -f "$(ml_data_dir)/config.md" ] && ML_GLOBAL_CONFIG="$(ml_data_dir)/config.md"
+  { [ -n "$ML_PROJECT_CONFIG" ] || [ -n "$ML_GLOBAL_CONFIG" ]; } || return 1
 
-# Populate ML_* from the config file, or return non-zero to mean "not
-# configured" — which every caller treats as "exit 0, do nothing".
-ml_load_config() {
-  local cwd="${1:-$PWD}"
-  ML_CONFIG=$(ml_find_config "$cwd") || return 1
-
-  ML_ENABLED=$(ml_frontmatter_get "$ML_CONFIG" enabled)
+  ML_ENABLED=$(ml_cfg_get enabled)
   ml_flag_enabled "$ML_ENABLED" || return 1
 
-  ML_WORKSPACE=$(ml_frontmatter_get "$ML_CONFIG" workspace)
+  ML_WORKSPACE=$(ml_cfg_get workspace)
   [ -n "$ML_WORKSPACE" ] || return 1
+  ML_PROJECTS=$(ml_cfg_get projects)
+  ML_ACTOR=$(ml_cfg_get actor)
+  ML_SYNC_ON_WRITE=$(ml_cfg_get sync_on_write)
+  ML_STATUS_LINE=$(ml_cfg_get status_line)
 
-  ML_PROJECTS=$(ml_frontmatter_get "$ML_CONFIG" projects)
-  ML_ACTOR=$(ml_frontmatter_get "$ML_CONFIG" actor)
-  ML_SYNC_ON_WRITE=$(ml_frontmatter_get "$ML_CONFIG" sync_on_write)
-  ML_STATUS_LINE=$(ml_frontmatter_get "$ML_CONFIG" status_line)
+  ML_CONFIG="${ML_PROJECT_CONFIG:-$ML_GLOBAL_CONFIG}"
 
-  export ML_CONFIG ML_WORKSPACE ML_PROJECTS ML_ACTOR
+  export ML_CONFIG ML_PROJECT_CONFIG ML_GLOBAL_CONFIG ML_WORKSPACE ML_PROJECTS ML_ACTOR
   return 0
 }
 

@@ -53,6 +53,11 @@ and `status_line`. Neither exists → point at `/memorylake:init`.
 `workspace` is the only strictly required field; without it every hook exits
 silently.
 
+Also resolve and report this project's **write-sync policy with its source**:
+project-file `sync_on_write` (explicit) > global `sync_deny` prefix match >
+global `sync_on_write` default. E.g. "write sync: OFF — matched `sync_deny:
+~/work`; override with sync_on_write: true in the project file".
+
 ## 5. Connectivity
 
 Only if steps 1, 3, and 4 passed:
