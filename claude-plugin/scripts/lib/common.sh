@@ -186,9 +186,11 @@ ml_project_ids() {
 ml_sync_denied() {
   local dir="$1" list="${ML_SYNC_DENY:-}" entry
   [ -n "$list" ] || return 1
-  # Resolve to the repo root when there is one: memories are per-repo, so the
-  # deny decision should not depend on which subdirectory the session runs in.
-  dir=$(cd -- "$dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$dir")
+  # Resolve to the PHYSICAL repo root: git rev-parse returns physical paths,
+  # and on macOS /tmp-style symlinks a logical prefix would silently miss it
+  # (found in e2e: /tmp/... vs /private/tmp/...). Both sides of the match are
+  # physicalized so the comparison is apples to apples.
+  dir=$(cd -- "$dir" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; } || printf '%s' "$dir")
   local IFS=','
   for entry in $list; do
     # Trim surrounding whitespace, expand a leading ~.
@@ -196,6 +198,10 @@ ml_sync_denied() {
     entry="${entry%"${entry##*[![:space:]]}"}"
     case "$entry" in "~"*) entry="$HOME${entry#\~}" ;; esac
     [ -n "$entry" ] || continue
+    # Physicalize existing prefixes too; a not-yet-existing path stays as-is.
+    if [ -d "$entry" ]; then
+      entry=$(cd -- "$entry" 2>/dev/null && pwd -P || printf '%s' "$entry")
+    fi
     case "$dir" in
       "$entry"|"$entry"/*) return 0 ;;
     esac

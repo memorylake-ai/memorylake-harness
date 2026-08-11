@@ -127,6 +127,16 @@ fi
 # ---------- route by memory type -----------------------------------------------
 
 mem_type=$(ml_frontmatter_get "$file_path" type)
+if [ -z "$mem_type" ]; then
+  # Flow-style metadata ({type: user, ...}) hides the key from the line-based
+  # reader. The model's output format is not ours to control, and silently
+  # downgrading a preference to the slow file path defeats the fast path's
+  # point — so fish the type out of the flow map. The (^|[{,]) guard keeps
+  # node_type from matching.
+  mem_type=$(ml_frontmatter_get "$file_path" metadata \
+    | grep -oE '(^|[{,])[[:space:]]*type:[[:space:]]*[a-z]+' 2>/dev/null \
+    | grep -oE '[a-z]+$' | head -n 1)
+fi
 description=$(ml_frontmatter_get "$file_path" description)
 
 case "$mem_type" in
