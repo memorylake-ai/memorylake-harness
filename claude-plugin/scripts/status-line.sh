@@ -80,7 +80,7 @@ repo_root=$(cd -- "${cwd:-$PWD}" 2>/dev/null && git rev-parse --show-toplevel 2>
 custom_id="${ML_PROJECT_CUSTOM_ID:-$(basename -- "$repo_root")}"
 if ml_flag_enabled "${ML_SYNC_ON_WRITE:-}" && ! ml_sync_denied "${cwd:-$PWD}" \
     && [ ! -d "$(ml_data_dir)/sync/${ML_WORKSPACE}/${custom_id}" ]; then
-  line="$line This project's memories will sync to Memory Lake on write — first time for this project; opt out by adding its path to sync_deny in ~/.claude/memorylake-plugin/config.md, or tell me to turn it off here."
+  line="$line This project's memories will sync to Memory Lake on write — first time for this project; opt out by adding its path to sync_deny in ~/.memorylake/harness/config.md, or tell me to turn it off here."
 fi
 
 emit "$line"

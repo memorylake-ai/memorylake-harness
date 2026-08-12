@@ -222,7 +222,7 @@ ml_cli() {
     printf '%s' "$found"
     return 0
   fi
-  local private="$(ml_data_dir)/bin/memorylake"
+  local private="$(ml_bin_dir)/memorylake"
   if [ -x "$private" ]; then
     printf '%s' "$private"
     return 0
@@ -232,14 +232,26 @@ ml_cli() {
 
 # Root of this plugin's own cache/state tree.
 #
-# Deliberately NOT ${CLAUDE_PLUGIN_DATA}: that variable is only injected with
-# THIS plugin's path inside hook processes. When the model runs ml-recall via
-# the Bash tool, the variable may be absent or — observed live 2026-08-07 —
-# carry ANOTHER plugin's data directory, silently splitting the state between
-# hooks and bin commands. A fixed home-relative path is the only location both
-# sides always agree on. MEMORYLAKE_PLUGIN_DATA overrides it for tests.
+# Lives under ~/.memorylake — the product's home on this machine (the CLI's
+# credentials already live there), shared by the Claude Code and Codex
+# harnesses so one setup serves both; parking Codex state under ~/.claude was
+# a historical accident. Deliberately NOT ${CLAUDE_PLUGIN_DATA}: that variable
+# is only injected with THIS plugin's path inside hook processes. When the
+# model runs ml-recall via the Bash tool, the variable may be absent or —
+# observed live 2026-08-07 — carry ANOTHER plugin's data directory, silently
+# splitting the state between hooks and bin commands. A fixed home-relative
+# path is the only location both sides always agree on.
+# MEMORYLAKE_PLUGIN_DATA overrides it for tests.
 ml_data_dir() {
-  printf '%s' "${MEMORYLAKE_PLUGIN_DATA:-$HOME/.claude/memorylake-plugin}"
+  printf '%s' "${MEMORYLAKE_PLUGIN_DATA:-$HOME/.memorylake/harness}"
+}
+
+# Directory for the privately installed CLI and ml-recall.
+#
+# The sibling of the data tree (~/.memorylake/bin by default), so a test that
+# overrides MEMORYLAKE_PLUGIN_DATA with .../harness gets an isolated bin too.
+ml_bin_dir() {
+  printf '%s' "$(dirname -- "$(ml_data_dir)")/bin"
 }
 
 # Per-session scratch directory (e.g. the reminded-once marker).

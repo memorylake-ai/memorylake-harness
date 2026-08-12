@@ -3,7 +3,7 @@
 #
 # Trimmed sibling of claude-plugin/scripts/lib/common.sh (the canonical copy of
 # the shared parts lives there). Both harnesses deliberately share ONE identity
-# and data tree — ~/.claude/memorylake-plugin/ — so a single /init (from either
+# and data tree — ~/.memorylake/harness/ — so a single /init (from either
 # client) configures both, the privately downloaded CLI is installed once, and
 # caches are not duplicated. The Codex-specific pieces are the memories
 # directory helpers at the bottom.
@@ -12,15 +12,24 @@ set -uo pipefail
 
 # Root of the plugin family's shared cache/state tree.
 #
-# Deliberately a fixed home-relative path, not PLUGIN_DATA: that variable is
-# only injected into hook processes, and the model invoking ml-recall through
-# the shell does not reliably see it (measured on the Claude Code side, where
-# the equivalent variable carried another plugin's directory). A fixed path is
-# the only location hooks and shell commands always agree on — and here it
-# additionally lets the Claude Code and Codex harnesses share one identity.
+# Lives under ~/.memorylake — the product's home on this machine, shared with
+# the Claude Code harness so one setup serves both. Deliberately a fixed
+# home-relative path, not PLUGIN_DATA: that variable is only injected into
+# hook processes, and the model invoking ml-recall through the shell does not
+# reliably see it (measured on the Claude Code side, where the equivalent
+# variable carried another plugin's directory). A fixed path is the only
+# location hooks and shell commands always agree on.
 # MEMORYLAKE_PLUGIN_DATA overrides it for tests.
 ml_data_dir() {
-  printf '%s' "${MEMORYLAKE_PLUGIN_DATA:-$HOME/.claude/memorylake-plugin}"
+  printf '%s' "${MEMORYLAKE_PLUGIN_DATA:-$HOME/.memorylake/harness}"
+}
+
+# Directory for the privately installed CLI and ml-recall.
+#
+# The sibling of the data tree (~/.memorylake/bin by default), so a test that
+# overrides MEMORYLAKE_PLUGIN_DATA with .../harness gets an isolated bin too.
+ml_bin_dir() {
+  printf '%s' "$(dirname -- "$(ml_data_dir)")/bin"
 }
 
 # Read one scalar key out of a YAML frontmatter block.
@@ -125,7 +134,7 @@ ml_cli() {
     printf '%s' "$found"
     return 0
   fi
-  local private="$(ml_data_dir)/bin/memorylake"
+  local private="$(ml_bin_dir)/memorylake"
   if [ -x "$private" ]; then
     printf '%s' "$private"
     return 0

@@ -8,7 +8,7 @@ Client-side harnesses that connect coding agents to
 | [`claude-plugin/`](claude-plugin/) | Claude Code | working — recall on read, sync on write, session status |
 | [`codex-plugin/`](codex-plugin/) | Codex | working — recall skill, per-turn memory sync, session status |
 
-Both harnesses share one identity and data tree (`~/.claude/memorylake-plugin/`):
+Both harnesses share one identity and data tree (`~/.memorylake/harness/`):
 configure once, use from both clients.
 
 ## Claude Code

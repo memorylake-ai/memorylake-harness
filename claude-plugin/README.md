@@ -21,7 +21,7 @@ everywhere else.
   degrades to doing nothing rather than misbehaving
 - The [`memorylake` CLI](https://github.com/memorylake-ai/memorylake-cli) —
   either already on `PATH`, or let `/memorylake:init` download a prebuilt
-  binary into the plugin's private location (`~/.claude/memorylake-plugin/bin/`).
+  binary into the plugin's private location (`~/.memorylake/bin/`).
   A CLI you installed yourself always takes precedence
 
 ## Install
@@ -34,7 +34,7 @@ everywhere else.
 
 `/memorylake:init` walks through everything: CLI install (if needed), login,
 workspace/actor selection, and writing the **global** config at
-`~/.claude/memorylake-plugin/config.md` — after which every project on the
+`~/.memorylake/harness/config.md` — after which every project on the
 machine can recall and sync, no per-project setup. A project that needs
 different settings (or wants out) adds its own `.claude/memorylake.local.md`,
 which takes precedence:
@@ -128,6 +128,13 @@ majority that never touch memory at all. The line exists mainly so an
 *unreachable* backend is stated out loud — otherwise an outage is
 indistinguishable from "you never told me that".
 
+## Backfilling existing memories
+
+The write hook syncs memories from install time onward. To upload what this
+machine accumulated before that, run `/memorylake:backfill` (also offered
+during `/memorylake:init`) — opt-in, dry-run first, `sync_deny` respected,
+and idempotent through the same hash state the hook uses.
+
 ## Known limitation: recall coverage
 
 `MEMORY.md` is loaded automatically at session start without a tool call, so
@@ -150,14 +157,12 @@ where Memory Lake would have helped. Ask for a recall directly, or run
 
 ## Uninstall
 
-Removing the plugin does not remove two things it created outside its own
-directory, by design:
-
-- `~/.claude/memorylake-plugin/` — caches, sync state, and the privately
-  downloaded CLI binary (if you used `/memorylake:init` to install it).
-  Delete the directory to remove them
-- `~/.memorylake/` — the CLI's own credentials and profiles, shared with any
-  other use of the `memorylake` CLI. Delete only if nothing else uses the CLI
+Removing the plugin does not remove `~/.memorylake/` — the product's home on
+this machine, holding the CLI's credentials (`credentials.toml`), the
+privately installed binaries (`bin/`), and the harness state shared with the
+Codex plugin (`harness/`: global config, caches, sync state). Delete the
+whole directory to remove everything — including your login — or just
+`harness/` and `bin/` to keep the CLI credentials.
 
 ## Development
 

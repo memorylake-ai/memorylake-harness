@@ -11,7 +11,7 @@ picture. End with the single most useful next action.
 ## 1. CLI installed
 
 ```bash
-command -v memorylake || ls "$HOME/.claude/memorylake-plugin/bin/memorylake"
+command -v memorylake || ls "$HOME/.memorylake/bin/memorylake"
 ```
 
 Report which location was found (a PATH install takes precedence over the
@@ -43,7 +43,7 @@ Two levels, project overrides global:
 
 1. `.claude/memorylake.local.md` from the project root (walk up from the
    working directory) — optional per-project override
-2. `~/.claude/memorylake-plugin/config.md` — the global default written by
+2. `~/.memorylake/harness/config.md` — the global default written by
    `/memorylake:init`
 
 Report which one is in effect and the values of `enabled`, `workspace`,

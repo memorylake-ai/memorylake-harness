@@ -14,7 +14,7 @@ Never print, echo, or write the user's API key anywhere except the
 Check both locations, in this order:
 
 ```bash
-command -v memorylake || ls "$HOME/.claude/memorylake-plugin/bin/memorylake"
+command -v memorylake || ls "$HOME/.memorylake/bin/memorylake"
 ```
 
 If found, report the version (`memorylake version`) and move on.
@@ -42,9 +42,9 @@ If missing, ask the user (AskUserQuestion) which way to install:
   curl -fsSLO "https://github.com/$repo/releases/download/$tag/memorylake-$tag-$target.tar.gz.sha256"
   shasum -a 256 -c "memorylake-$tag-$target.tar.gz.sha256"
   tar -xzf "memorylake-$tag-$target.tar.gz"
-  mkdir -p "$HOME/.claude/memorylake-plugin/bin"
-  install -m 0755 "memorylake-$tag-$target/memorylake" "$HOME/.claude/memorylake-plugin/bin/memorylake"
-  "$HOME/.claude/memorylake-plugin/bin/memorylake" version
+  mkdir -p "$HOME/.memorylake/bin"
+  install -m 0755 "memorylake-$tag-$target/memorylake" "$HOME/.memorylake/bin/memorylake"
+  "$HOME/.memorylake/bin/memorylake" version
   ```
 
   If the release lookup 404s, no release has been published yet — tell the
@@ -88,7 +88,7 @@ init. A per-project `.claude/memorylake.local.md` is an optional override
 (different workspace, custom project id, or `sync_on_write: false` /
 `enabled: false` to keep one project local-only or opted out entirely).
 
-If `~/.claude/memorylake-plugin/config.md` already exists, show its current
+If `~/.memorylake/harness/config.md` already exists, show its current
 values and ask whether to keep or rewrite it.
 
 Otherwise gather the pieces:
@@ -99,7 +99,7 @@ Otherwise gather the pieces:
    actor bound to the workspace. None bound → offer to create one
    (`memorylake actor create` + `actor bind`).
 
-Write `~/.claude/memorylake-plugin/config.md`:
+Write `~/.memorylake/harness/config.md`:
 
 ```markdown
 ---
@@ -124,6 +124,26 @@ prefixes in a `sync_deny` field, e.g. `sync_deny: ~/work, ~/clients`.
 Projects can also opt out individually with a `.claude/memorylake.local.md`
 containing `sync_on_write: false` (gitignored via `.claude/*.local.md`), and
 `/memorylake:sync off` does that for the current project.
+
+## Stage 3.5 — Offer to backfill existing memories (default: no)
+
+Claude Code has likely accumulated auto-memory across this machine's projects
+already; the write hook only syncs what is written from now on. Ask whether
+to upload the existing memories too — the default is **no**, and frame it
+honestly: this uploads accumulated notes about past work, across all
+projects, minus anything under `sync_deny`.
+
+If the user says yes, preview first, then run:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/backfill.sh" --dry-run
+# show the summary, get a confirmation on what it lists, then:
+"${CLAUDE_PLUGIN_ROOT}/scripts/backfill.sh"
+```
+
+Unresolvable project directories (deleted or renamed projects) are reported
+and skipped — expected, not an error. The run is idempotent; it can be
+repeated later with `/memorylake:backfill`.
 
 ## Stage 4 — Verify and hand off
 

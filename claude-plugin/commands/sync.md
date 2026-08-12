@@ -15,7 +15,7 @@ config every time they fire. No restart, no reload.
 
 1. **Project file** `.claude/memorylake.local.md` at the repo root, when it
    explicitly sets `sync_on_write` — the final word for this project
-2. **Global `sync_deny`** in `~/.claude/memorylake-plugin/config.md`: a
+2. **Global `sync_deny`** in `~/.memorylake/harness/config.md`: a
    comma-separated list of path prefixes (`~` allowed); a project under any
    listed prefix does not sync. Note: a project file that exists but does not
    set `sync_on_write` does NOT override the deny list

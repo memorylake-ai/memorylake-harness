@@ -80,7 +80,7 @@ from the next memory write:
   gitignored. The `/memorylake:sync` command does the same with a paper trail.
 - **A whole directory of projects** ("nothing under ~/work"): add the path
   prefix to `sync_deny` (comma-separated) in
-  `~/.claude/memorylake-plugin/config.md`.
+  `~/.memorylake/harness/config.md`.
 - Precedence: explicit project `sync_on_write` > global `sync_deny` > global
   default. Recall keeps working in denied projects — the switch only governs
   uploads. Already-uploaded memories are not recalled by turning sync off.

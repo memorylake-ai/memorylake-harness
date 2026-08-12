@@ -11,7 +11,7 @@ Never print, echo, or write the user's API key anywhere except the
 `memorylake auth login` command itself.
 
 The config, CLI, and caches are **shared with the Claude Code plugin** under
-`~/.claude/memorylake-plugin/` — if the user already ran `/memorylake:init`
+`~/.memorylake/harness/` — if the user already ran `/memorylake:init`
 in Claude Code, most stages below will already pass.
 
 ## Stage 1 — CLI binary
@@ -19,7 +19,7 @@ in Claude Code, most stages below will already pass.
 Check both locations, in this order:
 
 ```bash
-command -v memorylake || ls "$HOME/.claude/memorylake-plugin/bin/memorylake"
+command -v memorylake || ls "$HOME/.memorylake/bin/memorylake"
 ```
 
 If found, report the version and move on.
@@ -40,9 +40,9 @@ curl -fsSLO "https://github.com/$repo/releases/download/$tag/memorylake-$tag-$ta
 curl -fsSLO "https://github.com/$repo/releases/download/$tag/memorylake-$tag-$target.tar.gz.sha256"
 shasum -a 256 -c "memorylake-$tag-$target.tar.gz.sha256"
 tar -xzf "memorylake-$tag-$target.tar.gz"
-mkdir -p "$HOME/.claude/memorylake-plugin/bin"
-install -m 0755 "memorylake-$tag-$target/memorylake" "$HOME/.claude/memorylake-plugin/bin/memorylake"
-"$HOME/.claude/memorylake-plugin/bin/memorylake" version
+mkdir -p "$HOME/.memorylake/bin"
+install -m 0755 "memorylake-$tag-$target/memorylake" "$HOME/.memorylake/bin/memorylake"
+"$HOME/.memorylake/bin/memorylake" version
 ```
 
 The checksum verification is not optional: a download whose checksum does not
@@ -71,7 +71,7 @@ Confirm with `memorylake auth status`. The key is stored by the CLI in
 
 ## Stage 3 — Global config
 
-If `~/.claude/memorylake-plugin/config.md` already exists, show its values
+If `~/.memorylake/harness/config.md` already exists, show its values
 and ask whether to keep or rewrite.
 
 Otherwise gather:
@@ -81,7 +81,7 @@ Otherwise gather:
 2. **Actor**: `memorylake actor list --workspace <ws>`. Prefer the HUMAN
    actor. None bound → offer to create and bind one.
 
-Write `~/.claude/memorylake-plugin/config.md`:
+Write `~/.memorylake/harness/config.md`:
 
 ```markdown
 ---
@@ -110,7 +110,7 @@ gate.
 
 ```bash
 memorylake project list --workspace <ws>
-"$HOME/.claude/memorylake-plugin/bin/ml-recall" "test" --top-k 1 || true
+"$HOME/.memorylake/bin/ml-recall" "test" --top-k 1 || true
 ```
 
 An empty recall result is a pass — it proves the path works. A non-zero exit

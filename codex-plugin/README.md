@@ -12,7 +12,7 @@ Code, mobile or web clients — become searchable from inside Codex.
 The Claude Code sibling lives at [`../claude-plugin/`](../claude-plugin/).
 **Both harnesses share one identity**: the same global config, the same
 privately installed CLI, the same caches, all under
-`~/.claude/memorylake-plugin/`. Run the Claude Code plugin's
+`~/.memorylake/harness/`. Run the Claude Code plugin's
 `/memorylake:init` once and Codex is configured too (and vice versa — a
 hand-written config works the same).
 
@@ -39,7 +39,7 @@ login, workspace/actor selection, the global config, and the hook-trust step.
 in place — the two plugins share one setup.) To configure by hand instead,
 install the [`memorylake` CLI](https://github.com/memorylake-ai/memorylake-cli),
 log in (`memorylake auth login --api-key sk-...`), and write
-`~/.claude/memorylake-plugin/config.md`:
+`~/.memorylake/harness/config.md`:
 
 ```markdown
 ---
@@ -55,7 +55,7 @@ status_line: true
 
 **Recall.** A `memorylake` skill teaches Codex when and how to search Memory
 Lake, with the search command installed at a fixed path
-(`~/.claude/memorylake-plugin/bin/ml-recall`) by the session-start hook. The
+(`~/.memorylake/bin/ml-recall`) by the session-start hook. The
 query-writing contract, result-reading guidance, and the
 "failure is not emptiness" rule are shared with the Claude Code plugin.
 
@@ -106,6 +106,6 @@ The sync hooks are unaffected: hooks run outside the command sandbox.
 
 `codex plugin remove memorylake` and
 `codex plugin marketplace remove memorylake`. The shared data tree
-(`~/.claude/memorylake-plugin/`) and CLI credentials (`~/.memorylake/`) are
+(`~/.memorylake/harness/`) and CLI credentials (`~/.memorylake/`) are
 shared with the Claude Code plugin — remove them only if you are done with
 both.

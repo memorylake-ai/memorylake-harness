@@ -37,11 +37,11 @@ command -v jq >/dev/null 2>&1 || exit 0
 # config gate: the setup skill's verification stage invokes this path on a
 # machine that has no config yet, and the copy is local, idempotent, and
 # side-effect-free beyond the shared data tree.
-shared_bin="$(ml_data_dir)/bin"
+shared_bin="$(ml_bin_dir)"
 if [ ! -x "$shared_bin/ml-recall" ] || ! cmp -s "$SCRIPT_DIR/../bin/ml-recall" "$shared_bin/ml-recall" 2>/dev/null; then
-  mkdir -p "$shared_bin" "$(ml_data_dir)/scripts/lib" 2>/dev/null
+  mkdir -p "$shared_bin" "$(dirname -- "$(ml_bin_dir)")/scripts/lib" 2>/dev/null
   install -m 0755 "$SCRIPT_DIR/../bin/ml-recall" "$shared_bin/ml-recall" 2>/dev/null
-  install -m 0644 "$SCRIPT_DIR/lib/common.sh" "$(ml_data_dir)/scripts/lib/common.sh" 2>/dev/null
+  install -m 0644 "$SCRIPT_DIR/lib/common.sh" "$(dirname -- "$(ml_bin_dir)")/scripts/lib/common.sh" 2>/dev/null
 fi
 
 input=$(cat 2>/dev/null || printf '{}')

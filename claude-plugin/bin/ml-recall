@@ -84,7 +84,7 @@ command -v jq >/dev/null 2>&1 || fail MISSING_DEPENDENCY "jq is not installed; i
 CLI=$(ml_cli)
 [ -n "$CLI" ] || fail CLI_NOT_FOUND "the 'memorylake' binary is not installed; run /memorylake:init to set it up"
 
-ml_load_config "$PWD" || fail NOT_CONFIGURED "no global config (~/.claude/memorylake-plugin/config.md) and no project .claude/memorylake.local.md with a workspace; run the setup (/memorylake:init in Claude Code, or ask Codex to set up memorylake)"
+ml_load_config "$PWD" || fail NOT_CONFIGURED "no global config (~/.memorylake/harness/config.md) and no project .claude/memorylake.local.md with a workspace; run the setup (/memorylake:init in Claude Code, or ask Codex to set up memorylake)"
 
 # Without --projects the endpoint returns zero document hits, always. See
 # ml_project_ids for the measurement. Facts are unaffected, so a workspace with
