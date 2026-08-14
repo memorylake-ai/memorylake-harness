@@ -74,9 +74,11 @@ Three layers, most specific wins:
 The switch governs uploads only — recall works everywhere. It is also not
 retroactive: memories already uploaded stay until deleted server-side. The
 session status line announces the first-ever sync for each project, so
-uploading never starts silently. Codex-side sync has no per-project control
-(session summaries cannot be reliably attributed to a project after the
-fact); the deny list applies to Claude Code memories only.
+uploading never starts silently. The `sync_deny` list also governs
+Codex-side sync: session summaries carry their originating `cwd` in a
+metadata header and are routed and filtered by it (ad-hoc extension notes,
+which carry no cwd, are the one exception — they sync to a shared project
+unless Codex sync is off entirely).
 
 **With neither a global config nor a project one, the plugin does nothing at
 all** — no hooks fire, no network calls happen.

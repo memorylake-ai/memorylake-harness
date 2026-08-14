@@ -194,7 +194,11 @@ printf '%s' "$project_id" >"$sync_dir/project_id" 2>/dev/null
 
 # ---------- ensure the Library folder exists ----------------------------------
 
-folder_name="claude-memory--${custom_id}"
+# One NEUTRAL folder name per repo, shared with the Codex harness: both sync
+# paths key their folder_id cache on the same sync/<ws>/<custom_id>/ file, so
+# whichever harness creates the folder first names it for both — a
+# harness-specific name here would end up holding the other harness's files.
+folder_name="memory--${custom_id}"
 folder_id=""
 [ -f "$sync_dir/folder_id" ] && folder_id=$(cat "$sync_dir/folder_id" 2>/dev/null)
 

@@ -61,12 +61,16 @@ query-writing contract, result-reading guidance, and the
 
 **Sync.** A `Stop` hook runs after each turn, cheaply detects which session
 summaries under `~/.codex/memories/` changed (hash comparison, ~0.5s), and
-detaches a background worker to upload them into a `codex-memories` project —
-Codex has no async hooks yet, so the hook backgrounds itself rather than
-holding up your next prompt. A failed background sync leaves a marker that the
-next turn's hook reports out loud. Aggregate files (`MEMORY.md`,
-`raw_memories.md`) are deliberately not synced — they duplicate the summaries
-and would re-index hundreds of KB on every change.
+detaches a background worker to upload them — Codex has no async hooks yet,
+so the hook backgrounds itself rather than holding up your next prompt. Each
+summary is routed by the `cwd:` in its metadata header to the **same
+per-repo Memory Lake project the Claude Code harness uses**, so both
+assistants' memories for a repo live together; summaries from projects under
+`sync_deny` upload nothing. Files without a cwd header (ad-hoc extension
+notes) go to a shared `codex-memories` project. A failed background sync
+leaves a marker that the next turn's hook reports out loud. Aggregate files
+(`MEMORY.md`, `raw_memories.md`) are deliberately not synced — they duplicate
+the summaries and would re-index hundreds of KB on every change.
 
 **Status.** One line at session start reporting whether Memory Lake is
 reachable — chiefly so an *unreachable* backend is stated out loud instead of
@@ -81,6 +85,7 @@ masquerading as "no such memory".
 | Failure reporting | async hook, `exit 2` + stderr wakes the model | deferred: the background worker leaves a marker, the next turn's hook reports it via `systemMessage` — **in a Codex `Stop` hook, exit 2 means "continue the turn"**, never use it as an error channel |
 | Async hooks | supported (`asyncRewake`) | not supported; the hook detaches its own background worker (`nohup` + lock) and returns in ~0.5s |
 | Read-side nudge | `PreToolUse(Read)` on memory files | none — Codex injects its memory summary itself; the skill covers discovery |
+| Per-project routing | repo of the session cwd | the `cwd:` baked into each summary's metadata header (extension notes: shared fallback project) |
 
 ## Sandbox requirement
 

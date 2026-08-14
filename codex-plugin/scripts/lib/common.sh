@@ -115,12 +115,44 @@ ml_load_config() {
   ML_PROJECTS=$(ml_cfg_get projects)
   ML_ACTOR=$(ml_cfg_get actor)
   ML_SYNC_ON_WRITE=$(ml_cfg_get sync_on_write)
+  ML_SYNC_DENY=$(ml_cfg_get sync_deny)
   ML_STATUS_LINE=$(ml_cfg_get status_line)
 
   ML_CONFIG="${ML_PROJECT_CONFIG:-$ML_GLOBAL_CONFIG}"
 
-  export ML_CONFIG ML_PROJECT_CONFIG ML_GLOBAL_CONFIG ML_WORKSPACE ML_PROJECTS ML_ACTOR
+  export ML_CONFIG ML_PROJECT_CONFIG ML_GLOBAL_CONFIG ML_WORKSPACE ML_PROJECTS ML_SYNC_DENY ML_ACTOR
   return 0
+}
+
+# True when a directory falls under any sync_deny prefix.
+#
+# Verbatim twin of the claude-plugin implementation (canonical copy there) —
+# here it filters Codex session summaries by the cwd baked into their
+# metadata headers.
+ml_sync_denied() {
+  local dir="$1" list="${ML_SYNC_DENY:-}" entry
+  [ -n "$list" ] || return 1
+  # Resolve to the PHYSICAL repo root: git rev-parse returns physical paths,
+  # and on macOS /tmp-style symlinks a logical prefix would silently miss it
+  # (found in e2e: /tmp/... vs /private/tmp/...). Both sides of the match are
+  # physicalized so the comparison is apples to apples.
+  dir=$(cd -- "$dir" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; } || printf '%s' "$dir")
+  local IFS=','
+  for entry in $list; do
+    # Trim surrounding whitespace, expand a leading ~.
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    case "$entry" in "~"*) entry="$HOME${entry#\~}" ;; esac
+    [ -n "$entry" ] || continue
+    # Physicalize existing prefixes too; a not-yet-existing path stays as-is.
+    if [ -d "$entry" ]; then
+      entry=$(cd -- "$entry" 2>/dev/null && pwd -P || printf '%s' "$entry")
+    fi
+    case "$dir" in
+      "$entry"|"$entry"/*) return 0 ;;
+    esac
+  done
+  return 1
 }
 
 # Path to the memorylake binary, or empty when it is not installed.
