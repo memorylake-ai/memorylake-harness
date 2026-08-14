@@ -4,6 +4,16 @@
   "description": "Memory Lake memory layer for DeepSeek Harness (dsh): persistent cross-session memory tools, prompt guidance, and setup skills",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "memorylake",
+    "memory",
+    "long-term-memory"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/memorylake-ai/memorylake-harness.git",
