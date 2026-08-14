@@ -131,7 +131,7 @@ ml_load_config() {
 # Comma-separated project ids to scope a search to, or empty when the workspace
 # has none.
 #
-# MEASURED (2026-08-07, and previously by memorylake-mcp): the search endpoint
+# MEASURED (2026-08-07, twice independently): the search endpoint
 # treats a missing project_ids as "match no documents" rather than "match every
 # project". Facts still come back — they hang off the actor — but document hits
 # are silently always empty. Passing the full visible set is what the MCP
@@ -259,7 +259,7 @@ ml_repo_root() {
 # it through the URL path and 404s (measured 2026-08-14), so slashes and
 # colons are folded to dashes at the source. The fold is deterministic, which
 # is all identity needs; the human-readable original is recoverable enough
-# (github.com-zbyte-alpha). Applies to the explicit override too, as a
+# (github.com-acme-alpha). Applies to the explicit override too, as a
 # guardrail — a verbatim slash would break every lookup after the create.
 ml_project_identity() {
   local root d explicit="" url="" norm first_remote

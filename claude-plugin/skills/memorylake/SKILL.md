@@ -1,6 +1,6 @@
 ---
 name: memorylake
-description: Search the user's cross-device long-term memory in Memory Lake. Use when the user refers to something they told you before, asks what you know about them or their preferences, mentions a past decision, project, or document you have no local record of, or when local auto-memory turns up nothing and the answer plausibly exists elsewhere. Also covers how to phrase recall queries and how to read relevance scores.
+description: Search the user's cross-device long-term memory in Memory Lake. Use when the user refers to something they told you before, asks what you know about them or their preferences, mentions a past decision, project, or document you have no local record of, or when local auto-memory turns up nothing and the answer plausibly exists elsewhere. Also covers how to phrase recall queries and read results.
 ---
 
 # Memory Lake

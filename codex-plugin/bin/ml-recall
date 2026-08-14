@@ -9,7 +9,7 @@
 # A thin wrapper over `memorylake search`. The wrapping exists for one reason:
 # the raw CLI prints the full API payload as pretty JSON, and a single search
 # can run to thousands of tokens. The trimming rules below are inherited from
-# memorylake-mcp, where each one was added after an observed failure:
+# an earlier MCP-based integration, where each one was added after an observed failure:
 #
 #   - facts first: short, directly consumable, and the most likely answer to a
 #     personal/preference question. Models read sequentially.

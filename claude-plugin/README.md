@@ -58,7 +58,7 @@ status_line: true
 
 **How a repo maps to a cloud project.** The ML project's `custom_id` is the
 repo's *identity*, resolved as: explicit `project_custom_id` → the normalized
-git remote URL (`github.com-zbyte-foo` — every clone of a repo, on any
+git remote URL (`github.com-acme-foo` — every clone of a repo, on any
 machine, resolves to the same identity) → the repo's physical path (a repo
 with no remote cannot exist on another device, so its location is its
 identity). The project's display *name* is always the repo folder's basename
@@ -79,7 +79,8 @@ Three layers, most specific wins:
    `sync_on_write` does not override the deny list
 3. **Global `sync_on_write`**: the machine-wide default. Set it to `false`
    for opt-in mode, where only projects with an explicit project-file `true`
-   upload
+   upload. A missing key also means OFF — uploading only ever happens by
+   explicit choice
 
 The switch governs uploads only — recall works everywhere. It is also not
 retroactive: memories already uploaded stay until deleted server-side. The

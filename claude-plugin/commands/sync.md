@@ -56,7 +56,7 @@ project has in Memory Lake (`memorylake project get --workspace <ws>
 <custom-id> --by-custom-id`, then `project document list`) if they want to
 review or delete. The custom id is the repo's derived identity — its
 normalized remote URL with `/` and `:` folded to `-`
-(`github.com-zbyte-foo`), or its dash-folded physical path when it has no
+(`github.com-acme-foo`), or its dash-folded physical path when it has no
 remote; `memorylake project list` shows every project's custom_id when in
 doubt.
 
