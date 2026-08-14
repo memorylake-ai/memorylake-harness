@@ -327,7 +327,9 @@ input=$(cat 2>/dev/null || printf '{}')
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 
 ml_load_config "${cwd:-$PWD}" || exit 0
-ml_flag_enabled "${ML_SYNC_ON_WRITE:-}" || exit 0
+# Explicit opt-in, matching the claude harness: absent sync_on_write = OFF.
+[ -n "${ML_SYNC_ON_WRITE:-}" ] || exit 0
+ml_flag_enabled "$ML_SYNC_ON_WRITE" || exit 0
 [ -n "$(ml_cli)" ] || exit 0
 
 sync_root="$(ml_data_dir)/sync/${ML_WORKSPACE}"

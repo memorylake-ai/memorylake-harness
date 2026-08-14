@@ -184,8 +184,6 @@ claude --plugin-dir ./claude-plugin          # load without installing (from rep
 claude plugin validate ./ --strict
 ```
 
-Design rationale, the CLI command contract, and the roadmap live in
-[`PLAN.md`](PLAN.md).
 
 ## License
 

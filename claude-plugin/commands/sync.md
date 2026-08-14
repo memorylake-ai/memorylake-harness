@@ -27,10 +27,12 @@ Determine and state the effective policy for this project and, crucially,
 **where it comes from**. Check in order: does the repo-root
 `.claude/memorylake.local.md` set `sync_on_write`? Else, does the project's
 repo root fall under any `sync_deny` prefix in the global config? Else, what
-does the global `sync_on_write` say (absent means on)? Report like:
+does the global `sync_on_write` say (absent means OFF — uploading only ever
+happens by explicit opt-in)? Report in the conversation's language, e.g.:
 
-> 本项目写同步：关 —— 来源：全局 sync_deny 匹配 `~/work`。
-> 本项目 `.claude/memorylake.local.md` 里显式写 `sync_on_write: true` 可覆盖。
+> Write-sync for this project: OFF — source: global `sync_deny` matches
+> `~/work`. An explicit `sync_on_write: true` in this project's
+> `.claude/memorylake.local.md` overrides it.
 
 Also mention what is and is not affected: the switch governs **writing**
 (uploads); recall (`ml-recall`) keeps working either way.

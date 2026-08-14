@@ -69,7 +69,13 @@ ml_is_memory_index "$file_path" && exit 0
 [ -f "$file_path" ] || exit 0
 
 ml_load_config "${cwd:-$PWD}" || exit 0
-ml_flag_enabled "${ML_SYNC_ON_WRITE:-}" || exit 0
+# The OUTBOUND flag is explicit-opt-in: an absent/empty sync_on_write means
+# OFF, unlike the lenient ml_flag_enabled default used for enabled and
+# status_line — uploading user memories must never be the fail-open path.
+# (init/setup always write the key explicitly, so this only bites
+# hand-written configs — in the safe direction.)
+[ -n "${ML_SYNC_ON_WRITE:-}" ] || exit 0
+ml_flag_enabled "$ML_SYNC_ON_WRITE" || exit 0
 
 # Global sync_deny gate, placed BEFORE the fact/file routing so a denied
 # project uploads nothing on either path. Precedence is most-specific-wins:
