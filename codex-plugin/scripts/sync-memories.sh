@@ -281,6 +281,28 @@ run_worker() {
   exit 0
 }
 
+# ---------- preview mode (setup-time disclosure, no network) -------------------
+#
+# Lists what the next sync would upload, grouped by destination project. The
+# setup skill runs this BEFORE sync_on_write is enabled: the first sync
+# drains every summary already on disk — potentially months of history — and
+# that backlog must be consented to, not discovered after the fact.
+if [ "${1:-}" = "--preview" ]; then
+  ml_load_config "${2:-$PWD}" || { printf 'NOT_CONFIGURED\n' >&2; exit 1; }
+  changed_memory_files | while IFS= read -r f; do
+    scwd=$(ml_summary_cwd "$f")
+    cid=$(ml_summary_custom_id "$f")
+    cid="${cid:-$FALLBACK_ID}"
+    if [ -n "$scwd" ] && ! ml_summary_allowed "$scwd"; then
+      printf 'DENY\t%s\n' "$cid"
+    else
+      printf 'UPLOAD\t%s\n' "$cid"
+    fi
+  done | sort | uniq -c | sort -rn \
+    | awk '{printf "%-6s  %-40s  %d file(s)\n", $2, $3, $1}'
+  exit 0
+fi
+
 if [ "${1:-}" = "--worker" ]; then
   run_worker "${2:-$PWD}"
   exit 0

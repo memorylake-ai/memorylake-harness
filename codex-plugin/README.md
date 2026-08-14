@@ -72,6 +72,11 @@ leaves a marker that the next turn's hook reports out loud. Aggregate files
 (`MEMORY.md`, `raw_memories.md`) are deliberately not synced — they duplicate
 the summaries and would re-index hundreds of KB on every change.
 
+The **first** sync uploads the summaries that already exist on disk, not just
+future ones — which is why the setup skill keeps `sync_on_write` off until it
+has shown the user that backlog (`sync-memories.sh --preview`, grouped by
+destination project) and gotten an explicit yes.
+
 **Status.** One line at session start reporting whether Memory Lake is
 reachable — chiefly so an *unreachable* backend is stated out loud instead of
 masquerading as "no such memory".

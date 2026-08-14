@@ -38,10 +38,17 @@ command -v jq >/dev/null 2>&1 || exit 0
 # machine that has no config yet, and the copy is local, idempotent, and
 # side-effect-free beyond the shared data tree.
 shared_bin="$(ml_bin_dir)"
-if [ ! -x "$shared_bin/ml-recall" ] || ! cmp -s "$SCRIPT_DIR/../bin/ml-recall" "$shared_bin/ml-recall" 2>/dev/null; then
-  mkdir -p "$shared_bin" "$(dirname -- "$(ml_bin_dir)")/scripts/lib" 2>/dev/null
+shared_root="$(dirname -- "$(ml_bin_dir)")"
+if [ ! -x "$shared_bin/ml-recall" ] \
+    || ! cmp -s "$SCRIPT_DIR/../bin/ml-recall" "$shared_bin/ml-recall" 2>/dev/null \
+    || ! cmp -s "$SCRIPT_DIR/sync-memories.sh" "$shared_root/scripts/sync-memories.sh" 2>/dev/null; then
+  mkdir -p "$shared_bin" "$shared_root/scripts/lib" 2>/dev/null
   install -m 0755 "$SCRIPT_DIR/../bin/ml-recall" "$shared_bin/ml-recall" 2>/dev/null
-  install -m 0644 "$SCRIPT_DIR/lib/common.sh" "$(dirname -- "$(ml_bin_dir)")/scripts/lib/common.sh" 2>/dev/null
+  install -m 0644 "$SCRIPT_DIR/lib/common.sh" "$shared_root/scripts/lib/common.sh" 2>/dev/null
+  # sync-memories.sh rides along for its --preview mode: the setup skill needs
+  # a fixed path to it (Codex gives the model no PLUGIN_ROOT), and it sources
+  # lib/common.sh relative to its own location, which the line above provides.
+  install -m 0755 "$SCRIPT_DIR/sync-memories.sh" "$shared_root/scripts/sync-memories.sh" 2>/dev/null
 fi
 
 input=$(cat 2>/dev/null || printf '{}')

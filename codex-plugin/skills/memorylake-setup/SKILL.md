@@ -81,23 +81,50 @@ Otherwise gather:
 2. **Actor**: `memorylake actor list --workspace <ws>`. Prefer the HUMAN
    actor. None bound → offer to create and bind one.
 
-Write `~/.memorylake/harness/config.md`:
+Write `~/.memorylake/harness/config.md` — with sync **off**; enabling it is
+a separate, informed step (Stage 3.5):
 
 ```markdown
 ---
 enabled: true
 workspace: <ws-id>
 actor: <actor-id>
-sync_on_write: true
+sync_on_write: false
 status_line: true
 ---
 ```
 
-Before writing, tell the user what `sync_on_write: true` means here: Codex
-session summaries (which describe what they worked on) are uploaded to their
-Memory Lake workspace after each turn, and — if they also use the Claude Code
-plugin — memory files Claude writes are uploaded too. `false` keeps
-everything local.
+## Stage 3.5 — First-sync disclosure, then enable sync
+
+Turning `sync_on_write` on does not only affect future sessions: the first
+sync drains **every session summary already on disk** — potentially months of
+history across all the user's projects. Never flip the flag without showing
+the user that backlog first:
+
+```bash
+bash ~/.memorylake/scripts/sync-memories.sh --preview
+```
+
+(Fixed path — the plugin installs the script there at session start, next to
+`ml-recall`.)
+
+Each line is one destination Memory Lake project: `UPLOAD` or `DENY`, the
+project name (the repo name from each summary's `cwd:` header;
+`codex-memories` holds unattributable extension notes), and the file count.
+Show it to the user and let them decide:
+
+- **Exclude some projects** → add path prefixes to `sync_deny` in
+  `~/.memorylake/harness/config.md` (comma-separated, `~` allowed), then
+  re-run the preview and confirm those rows now read `DENY`
+- **Upload** → set `sync_on_write: true`; the backlog uploads in the
+  background after the next turn ends (in a session with trusted hooks)
+- **Not now** → leave it `false`; recall keeps working either way
+
+Only an explicit yes from the user enables the flag. If they also use the
+Claude Code plugin, mention that `sync_on_write: true` uploads Claude's
+memory files too as they are written — and that their pre-existing Claude
+Code memories are a separate, equally explicit step: `/memorylake:backfill`
+in Claude Code.
 
 ## Stage 4 — Hook trust
 
