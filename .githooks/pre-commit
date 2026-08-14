@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Blocks commits that stage any class of leak this repository has actually
+# shipped before: credential-shaped strings, personal identifiers, Chinese
+# text (the repo ships English-only), internal planning docs, and shell
+# syntax errors. Scans STAGED content (git show :file), not the worktree.
+#
+# Activate once per clone:   git config core.hooksPath .githooks
+# Emergency bypass:          git commit --no-verify   (say why in the PR)
+set -uo pipefail
+
+fail=0
+say() { printf 'pre-commit: %s\n' "$1" >&2; fail=1; }
+
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+
+  case "$f" in
+    *PLAN.md) say "$f — internal planning docs are never committed"; continue ;;
+    .githooks/*)
+      # The hooks themselves legitimately contain the leak patterns they scan
+      # for — syntax-check them, but skip the content patterns.
+      if ! git show ":$f" 2>/dev/null | bash -n 2>/dev/null; then
+        say "$f — bash syntax error in staged content"
+      fi
+      continue
+      ;;
+  esac
+
+  # Binary? numstat prints "-<TAB>-" for binary diffs.
+  if git diff --cached --numstat -- "$f" 2>/dev/null | grep -q '^-'; then
+    continue
+  fi
+  content=$(git show ":$f" 2>/dev/null) || continue
+
+  if printf '%s' "$content" | grep -qE 'sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|ghs_[A-Za-z0-9]{20,}|github_pat_|glpat-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|xox[abprs]-[A-Za-z0-9-]+|BEGIN [A-Z ]*PRIVATE KEY'; then
+    say "$f — credential-shaped string in staged content"
+  fi
+
+  if printf '%s' "$content" | grep -qE 'a1594834522|@(gmail|qq|163|outlook|hotmail)\.com'; then
+    say "$f — personal identifier in staged content"
+  fi
+
+  # CJK ideographs (U+4E00..U+9FFF) all start with byte 0xE4-0xE9 in UTF-8;
+  # a byte-range match works in the C locale git hooks run under, where a
+  # multibyte character range would be an invalid-range error.
+  if printf '%s' "$content" | LC_ALL=C grep -q $'[\xe4-\xe9]'; then
+    say "$f — Chinese text in staged content (this repo ships English-only)"
+  fi
+
+  case "$f" in
+    *.sh)
+      if ! printf '%s' "$content" | bash -n 2>/dev/null; then
+        say "$f — bash syntax error in staged content"
+      fi
+      ;;
+  esac
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+if [ "$fail" -ne 0 ]; then
+  printf 'pre-commit: commit blocked. Fix the findings above (or, for a\n' >&2
+  printf 'deliberate exception, git commit --no-verify and justify it in the PR).\n' >&2
+  exit 1
+fi
+exit 0

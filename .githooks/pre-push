@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# main only moves through reviewed pull requests — direct pushes are blocked.
+# Emergency bypass: ALLOW_MAIN_PUSH=1 git push   (say why, out loud)
+set -uo pipefail
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ] && [ "${ALLOW_MAIN_PUSH:-}" != "1" ]; then
+    printf 'pre-push: direct pushes to main are blocked — push a branch and\n' >&2
+    printf 'open a PR (gh pr create). Emergency override: ALLOW_MAIN_PUSH=1.\n' >&2
+    exit 1
+  fi
+done
+exit 0
