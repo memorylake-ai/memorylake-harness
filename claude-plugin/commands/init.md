@@ -69,8 +69,12 @@ memorylake auth status
 ```
 
 If not logged in, ask the user for their API key (they can create one in the
-Memory Lake console) and, if their deployment uses a non-default endpoint,
-the base URL. Then:
+Memory Lake console). The service has two deployments with **separate accounts**: the
+international one at [memorylake.ai](https://memorylake.ai) (the CLI's
+default) and the China one at [memorylake.cn](https://memorylake.cn). Ask
+which console the user's account lives in; international accounts need no
+`--base-url`, China accounts log in with
+`--base-url https://app.memorylake.cn/openapi/memorylake`.
 
 ```bash
 memorylake auth login --api-key <KEY> [--base-url <URL>]

@@ -1,6 +1,6 @@
 {
   "name": "memorylake",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Cross-device long-term memory for Codex, backed by Memory Lake",
   "author": {
     "name": "MemoryLake"

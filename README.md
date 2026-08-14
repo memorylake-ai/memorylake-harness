@@ -1,7 +1,10 @@
 # memorylake-harness
 
 Client-side harnesses that connect coding agents to
-[Memory Lake](https://memorylake.cn) — cross-device long-term memory.
+[Memory Lake](https://memorylake.ai) — cross-device long-term memory.
+(Two deployments, separate accounts: [memorylake.ai](https://memorylake.ai)
+international, [memorylake.cn](https://memorylake.cn) China; the CLI defaults
+to the international endpoint.)
 
 | Harness | Client | Status |
 | --- | --- | --- |
