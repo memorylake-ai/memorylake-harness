@@ -76,10 +76,9 @@ line="Memory Lake: connected · workspace ${ML_WORKSPACE} · ${projects} project
 # gets told, once, that its memories will upload and how to opt out. The deny
 # list's biggest weakness is that users must know it exists before they can
 # use it; this is where they learn.
-repo_root=$(cd -- "${cwd:-$PWD}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null || printf '%s' "${cwd:-$PWD}")
-custom_id="${ML_PROJECT_CUSTOM_ID:-$(basename -- "$repo_root")}"
+custom_id="${ML_PROJECT_CUSTOM_ID:-$(ml_project_identity "${cwd:-$PWD}")}"
 if ml_flag_enabled "${ML_SYNC_ON_WRITE:-}" && ! ml_sync_denied "${cwd:-$PWD}" \
-    && [ ! -d "$(ml_data_dir)/sync/${ML_WORKSPACE}/${custom_id}" ]; then
+    && [ ! -d "$(ml_data_dir)/sync/${ML_WORKSPACE}/$(ml_cid_slug "$custom_id")" ]; then
   line="$line This project's memories will sync to Memory Lake on write — first time for this project; opt out by adding its path to sync_deny in ~/.memorylake/harness/config.md, or tell me to turn it off here."
 fi
 

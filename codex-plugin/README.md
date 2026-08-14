@@ -90,7 +90,7 @@ masquerading as "no such memory".
 | Failure reporting | async hook, `exit 2` + stderr wakes the model | deferred: the background worker leaves a marker, the next turn's hook reports it via `systemMessage` — **in a Codex `Stop` hook, exit 2 means "continue the turn"**, never use it as an error channel |
 | Async hooks | supported (`asyncRewake`) | not supported; the hook detaches its own background worker (`nohup` + lock) and returns in ~0.5s |
 | Read-side nudge | `PreToolUse(Read)` on memory files | none — Codex injects its memory summary itself; the skill covers discovery |
-| Per-project routing | repo of the session cwd | the `cwd:` baked into each summary's metadata header (extension notes: shared fallback project) |
+| Per-project routing | repo identity of the session cwd (remote URL, else path) | the same identity, derived from the `cwd:` baked into each summary's metadata header (extension notes: shared fallback project) |
 
 ## Sandbox requirement
 

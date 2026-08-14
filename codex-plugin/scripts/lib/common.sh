@@ -155,6 +155,95 @@ ml_sync_denied() {
   return 1
 }
 
+# ---------- project identity ---------------------------------------------------
+#
+# What is "the project" a memory belongs to? The rule, most intentional first:
+#
+#   1. explicit `project_custom_id` in the project's own config file — the
+#      user's word beats any inference
+#   2. the normalized git remote URL — every clone of a repo, on any machine
+#      and under any path, points back to the same origin, which matches how
+#      developers themselves decide "same project or not"
+#   3. the physical repo-root path — a repo with no remote has no way to
+#      exist on another device, so its location IS its identity
+#
+# The identity is the ML project custom_id; humans see only the display name
+# (repo basename). Both harnesses share these helpers, so a repo gets ONE
+# cloud project no matter which assistant wrote the memory.
+
+# Normalize a git remote URL to `host/path`: protocol, credentials, and a
+# trailing .git stripped, host lowercased, scp-style `host:path` folded to
+# `host/path`. Prints nothing when no path remains. Deliberately textual —
+# the goal is that the SAME configured URL yields the same identity
+# everywhere, not full URL semantics (a nonstandard port folds into the
+# path, which stays deterministic).
+ml_normalize_remote() {
+  local url="$1" host rest
+  url="${url%%\?*}"
+  url="${url%/}"
+  url="${url%.git}"
+  case "$url" in *://*) url="${url#*://}" ;; esac
+  url="${url##*@}"
+  host="${url%%[:/]*}"
+  rest="${url#"$host"}"
+  rest="${rest#:}"
+  rest="${rest#/}"
+  rest="${rest%/}"
+  [ -n "$host" ] && [ -n "$rest" ] || return 1
+  printf '%s/%s' "$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')" "$rest"
+}
+
+# The physical root of the project containing a directory (the directory
+# itself, physicalized, when it is not in a git repo; verbatim when gone).
+ml_repo_root() {
+  (cd -- "$1" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; }) || printf '%s' "$1"
+}
+
+# The stable identity (= ML project custom_id) of the project at a directory,
+# by the three-level rule above — always in slug form: the API stores a
+# custom_id containing slashes fine, but `project get --by-custom-id` routes
+# it through the URL path and 404s (measured 2026-08-14), so slashes and
+# colons are folded to dashes at the source. The fold is deterministic, which
+# is all identity needs; the human-readable original is recoverable enough
+# (github.com-zbyte-alpha). Applies to the explicit override too, as a
+# guardrail — a verbatim slash would break every lookup after the create.
+ml_project_identity() {
+  local root d explicit="" url="" norm first_remote
+  root=$(ml_repo_root "$1")
+  d="$root"
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    if [ -f "$d/.claude/memorylake.local.md" ]; then
+      explicit=$(ml_frontmatter_get "$d/.claude/memorylake.local.md" project_custom_id)
+      break
+    fi
+    d=$(dirname -- "$d")
+  done
+  if [ -n "$explicit" ]; then
+    ml_cid_slug "$explicit"
+    return 0
+  fi
+  url=$(git -C "$root" remote get-url origin 2>/dev/null)
+  if [ -z "$url" ]; then
+    first_remote=$(git -C "$root" remote 2>/dev/null | head -n 1)
+    [ -n "$first_remote" ] && url=$(git -C "$root" remote get-url "$first_remote" 2>/dev/null)
+  fi
+  if [ -n "$url" ]; then
+    norm=$(ml_normalize_remote "$url") && [ -n "$norm" ] && { ml_cid_slug "$norm"; return 0; }
+  fi
+  ml_cid_slug "$root"
+}
+
+# The name humans see for that project: the repo folder's basename.
+ml_project_display() {
+  basename -- "$(ml_repo_root "$1")"
+}
+
+# Filesystem- and Drive-safe form of an identity (slashes and colons folded
+# to dashes) — identities are used as state directory and folder names.
+ml_cid_slug() {
+  printf '%s' "$1" | tr '/:' '--'
+}
+
 # Path to the memorylake binary, or empty when it is not installed.
 #
 # A user-installed binary on PATH always wins; the shared private install

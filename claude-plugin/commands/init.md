@@ -112,9 +112,11 @@ status_line: true
 ---
 ```
 
-No `project_custom_id` in the global config: each project derives it from its
-git repo name automatically, and a project that needs a different one sets it
-in its own `.claude/memorylake.local.md`.
+No `project_custom_id` in the global config: each project derives its cloud
+identity automatically (normalized git remote URL when the repo has one, else
+its physical path — the display name stays the repo folder name), and a
+project that needs a different identity sets it in its own
+`.claude/memorylake.local.md`.
 
 Before writing, tell the user what a global `sync_on_write: true` means:
 memory files Claude writes in ANY project on this machine are uploaded to

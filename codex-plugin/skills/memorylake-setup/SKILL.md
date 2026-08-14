@@ -109,8 +109,10 @@ bash ~/.memorylake/scripts/sync-memories.sh --preview
 `ml-recall`.)
 
 Each line is one destination Memory Lake project: `UPLOAD` or `DENY`, the
-project name (the repo name from each summary's `cwd:` header;
-`codex-memories` holds unattributable extension notes), and the file count.
+project identity (derived from each summary's `cwd:` header — the repo's
+normalized remote URL like `github.com-zbyte-foo`, or its dash-folded path
+when it has no remote; `codex-memories` holds unattributable extension
+notes), and the file count.
 Show it to the user and let them decide:
 
 - **Exclude some projects** → add path prefixes to `sync_deny` in

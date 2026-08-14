@@ -26,7 +26,8 @@
 # ATTRIBUTION: rollout summaries carry a stable metadata header written by the
 # engine at generation time, including the session's `cwd:`. That line is what
 # routes each summary to the SAME per-repo ML project the Claude Code harness
-# uses (custom_id = repo basename), merging both harnesses' memories for a
+# uses (ml_project_identity: explicit config > remote URL > physical path),
+# merging both harnesses' memories for a
 # repo — and it is what makes sync_deny reliable here: the cwd is baked into
 # the content, so there is no sync-time/session-cwd mismatch. Files without a
 # cwd header (extension notes, unknown formats) fall back to the shared
@@ -49,9 +50,10 @@ MEM_DIR=$(ml_codex_memories_dir)
 
 FALLBACK_ID="codex-memories"
 
-# Per-custom_id state directory under the sync root.
+# Per-identity state directory under the sync root (slugged: identities are
+# remote URLs with slashes in them).
 state_dir_for() {
-  printf '%s/sync/%s/%s' "$(ml_data_dir)" "$ML_WORKSPACE" "$1"
+  printf '%s/sync/%s/%s' "$(ml_data_dir)" "$ML_WORKSPACE" "$(ml_cid_slug "$1")"
 }
 
 # The state file that tracks one memory file's sync status.
@@ -66,15 +68,23 @@ ml_summary_cwd() {
   head -n 10 -- "$1" 2>/dev/null | grep -m1 '^cwd: ' | cut -c6- | sed 's/^[[:space:]]*//'
 }
 
-# Resolve a summary file to the custom_id it belongs to. Same rule as the
-# Claude Code harness — basename of the repo root — so both harnesses'
-# memories for one repo land in one ML project. Empty when unattributable.
+# Resolve a summary file to the project identity it belongs to. Same rule as
+# the Claude Code harness (ml_project_identity: explicit config > remote URL >
+# physical path), so every clone of a repo — any machine, either assistant —
+# lands in one ML project. Empty when unattributable (no cwd header).
 ml_summary_custom_id() {
   local scwd
   scwd=$(ml_summary_cwd "$1")
   [ -n "$scwd" ] || return 0
-  scwd=$(cd -- "$scwd" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; } || printf '%s' "$scwd")
-  basename -- "$scwd"
+  ml_project_identity "$scwd"
+}
+
+# The display name for a summary's project: the repo folder's basename.
+ml_summary_display() {
+  local scwd
+  scwd=$(ml_summary_cwd "$1")
+  [ -n "$scwd" ] || return 0
+  ml_project_display "$scwd"
 }
 
 # Should a summary from this cwd upload? Mirrors the claude-side three-layer
@@ -146,14 +156,14 @@ run_worker() {
 
   fail_marker="$sync_root/last-failure.txt"
 
-  # Resolve (create-first, file-cached per custom_id) the ML project id.
-  ensure_project() { # $1=custom_id → stdout id, empty on failure
-    local cid="$1" cache pid_
+  # Resolve (create-first, file-cached per identity) the ML project id.
+  ensure_project() { # $1=custom_id $2=display name → stdout id, empty on failure
+    local cid="$1" name_="${2:-$1}" cache pid_
     cache="$(state_dir_for "$cid")/project_id"
     pid_=$(cat "$cache" 2>/dev/null)
     if [ -z "$pid_" ]; then
       pid_=$("$CLI" project create --workspace "$ML_WORKSPACE" \
-          --name "$cid" --custom-id "$cid" 2>/dev/null \
+          --name "$name_" --custom-id "$cid" 2>/dev/null \
         | jq -r '.id // empty' 2>/dev/null)
       if [ -n "$pid_" ]; then
         rm -f "$(ml_data_dir)/projects/${ML_WORKSPACE}.txt" 2>/dev/null
@@ -171,7 +181,7 @@ run_worker() {
   # folder_id cache file): one repo, one folder, both assistants' memories.
   ensure_folder() { # $1=custom_id → stdout id, empty on failure
     local cid="$1" fname cache fid
-    fname="memory--$cid"
+    fname="memory--$(ml_cid_slug "$cid")"
     [ "$cid" = "$FALLBACK_ID" ] && fname="codex-memories"
     cache="$(state_dir_for "$cid")/folder_id"
     fid=$(cat "$cache" 2>/dev/null)
@@ -207,11 +217,12 @@ run_worker() {
     scwd=$(ml_summary_cwd "$f")
     cid=$(ml_summary_custom_id "$f")
     cid="${cid:-$FALLBACK_ID}"
+    display=$(ml_summary_display "$f")
     if [ -n "$scwd" ] && ! ml_summary_allowed "$scwd"; then
       continue
     fi
 
-    project_id=$(ensure_project "$cid")
+    project_id=$(ensure_project "$cid" "${display:-$cid}")
     if [ -z "$project_id" ]; then
       failed="$slug (project \"$cid\")"
       continue

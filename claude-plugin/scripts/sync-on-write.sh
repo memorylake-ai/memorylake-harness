@@ -104,12 +104,16 @@ fail() {
 hash=$(shasum -a 256 "$file_path" 2>/dev/null | cut -d' ' -f1)
 [ -n "$hash" ] || exit 0
 
+# Identity (custom_id) and display name are separate on purpose: the identity
+# is remote-URL-based so every clone of a repo maps to one cloud project (see
+# ml_project_identity); the name is the basename humans recognize.
+# ML_PROJECT_CUSTOM_ID (merged config) still wins for compatibility, though
+# ml_project_identity reads the same project-file key itself.
 custom_id="${ML_PROJECT_CUSTOM_ID:-}"
-if [ -z "$custom_id" ]; then
-  custom_id=$(basename -- "$(cd -- "${cwd:-$PWD}" && git rev-parse --show-toplevel 2>/dev/null || pwd)")
-fi
+[ -n "$custom_id" ] || custom_id=$(ml_project_identity "${cwd:-$PWD}")
+display_name=$(ml_project_display "${cwd:-$PWD}")
 
-sync_dir="$(ml_data_dir)/sync/${ML_WORKSPACE}/${custom_id}"
+sync_dir="$(ml_data_dir)/sync/${ML_WORKSPACE}/$(ml_cid_slug "$custom_id")"
 mkdir -p "$sync_dir" 2>/dev/null || exit 0
 path_key=$(printf '%s' "$file_path" | shasum -a 256 | cut -d' ' -f1)
 state_file="$sync_dir/file-${path_key}.json"
@@ -177,7 +181,7 @@ project_id=""
 # lookup below recovers.
 if [ -z "$project_id" ]; then
   project_id=$("$CLI" project create --workspace "$ML_WORKSPACE" \
-      --name "$custom_id" --custom-id "$custom_id" 2>/dev/null \
+      --name "$display_name" --custom-id "$custom_id" 2>/dev/null \
     | jq -r '.id // empty' 2>/dev/null)
   if [ -n "$project_id" ]; then
     # The visible-project cache predates this project; left alone it would
@@ -198,7 +202,7 @@ printf '%s' "$project_id" >"$sync_dir/project_id" 2>/dev/null
 # paths key their folder_id cache on the same sync/<ws>/<custom_id>/ file, so
 # whichever harness creates the folder first names it for both — a
 # harness-specific name here would end up holding the other harness's files.
-folder_name="memory--${custom_id}"
+folder_name="memory--$(ml_cid_slug "$custom_id")"
 folder_id=""
 [ -f "$sync_dir/folder_id" ] && folder_id=$(cat "$sync_dir/folder_id" 2>/dev/null)
 

@@ -43,7 +43,7 @@ which takes precedence:
 ---
 enabled: true
 workspace: ws-1234
-project_custom_id: my-repo      # optional; defaults to the git repo name
+project_custom_id: my-repo      # optional; overrides the derived identity
 actor: act-human-…              # optional, reserved for a later version
 remind_on_read: true
 sync_on_write: true
@@ -54,7 +54,17 @@ status_line: true
 `workspace` is the only required field. Useful per-project overrides:
 `enabled: false` (opt this project out entirely), `sync_on_write: false`
 (recall works, but this project's memory stays local), `project_custom_id`
-(name the ML project something other than the git repo name).
+(pin the project's cloud identity explicitly).
+
+**How a repo maps to a cloud project.** The ML project's `custom_id` is the
+repo's *identity*, resolved as: explicit `project_custom_id` → the normalized
+git remote URL (`github.com-zbyte-foo` — every clone of a repo, on any
+machine, resolves to the same identity) → the repo's physical path (a repo
+with no remote cannot exist on another device, so its location is its
+identity). The project's display *name* is always the repo folder's basename
+— identity is for machines, the name is for humans. The Codex harness uses
+the identical rule, so one repo gets one cloud project no matter which
+assistant or device wrote the memory.
 
 ### Choosing which projects sync
 
