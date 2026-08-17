@@ -30,7 +30,7 @@ emit() {
   exit 0
 }
 
-command -v jq >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || ml_exit_without_jq SessionStart
 
 input=$(cat 2>/dev/null || printf '{}')
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)

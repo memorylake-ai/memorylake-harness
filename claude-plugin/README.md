@@ -18,7 +18,11 @@ everywhere else.
 ## Requirements
 
 - `jq` — the hooks and `ml-recall` parse JSON with it. Without it the plugin
-  degrades to doing nothing rather than misbehaving
+  cannot run, and says so: the session-start line reports that recall is
+  unavailable, a memory write reports that it was saved locally but not
+  synced, and `ml-recall` refuses outright. It never fails quietly — a user
+  who believes their memories are syncing when they are not is worse off than
+  one who knows they are not
 - The [`memorylake` CLI](https://github.com/memorylake-ai/memorylake-cli) —
   either already on `PATH`, or let `/memorylake:init` download a prebuilt
   binary into the plugin's private location (`~/.memorylake/bin/`).

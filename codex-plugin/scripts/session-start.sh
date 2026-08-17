@@ -29,7 +29,7 @@ emit() {
   exit 0
 }
 
-command -v jq >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || ml_exit_without_jq SessionStart
 
 # Self-install ml-recall into the shared bin so `<data>/bin/ml-recall` always
 # works, whichever harness installed it first. common.sh rides along because

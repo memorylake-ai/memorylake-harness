@@ -57,7 +57,21 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 # ---------- silent-exit gate (must stay cheap: runs on every Write/Edit) ----
 
-command -v jq >/dev/null 2>&1 || exit 0
+# jq is what parses everything below, so without it this hook can do nothing —
+# but silence is the wrong way to say so. A bare `exit 0` here meant that on a
+# host with no jq the plugin looked installed and healthy while every memory
+# quietly failed to upload; a user who believes their memories are saved is
+# worse off than one who knows they are not. This is the same failure the
+# script's own contract already forbids, so report it the same way the rest of
+# the file does: exit 2 with the reason on stderr, which asyncRewake surfaces.
+if ! command -v jq >/dev/null 2>&1; then
+  # Only for someone who configured Memory Lake: an unconfigured project must
+  # see no trace of this plugin, and nothing was going to be synced anyway.
+  # ml_load_config parses frontmatter with awk, so it works without jq.
+  ml_load_config "$PWD" || exit 0
+  printf '[Memory Lake] this memory was saved locally but NOT synced: the jq dependency is missing, so the sync hook cannot run. Install jq (brew install jq / apt-get install jq); a later memory write retries the sync automatically.\n' >&2
+  exit 2
+fi
 
 input="$_raw_input"
 file_path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
