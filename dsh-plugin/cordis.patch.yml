@@ -1,0 +1,13 @@
+# Bundle layer applied when a dsh profile lists @memorylake/dsh-plugin.
+#
+# Deployment-level knobs (spawn timeouts, output caps, top-k ceiling, status
+# TTL) ride these rows' `config:`; identity and switches (workspace, actor,
+# enabled, sync_on_write) deliberately do NOT — they live in the shared
+# ~/.memorylake/harness/config.md tree so one setup serves every harness.
+# A profile's own cordis.patch.yml can override either row by `id` (note a
+# patch replaces the row's entire `config`, it does not deep-merge keys).
+- insert:
+    - id: memorylake
+      name: '@memorylake/dsh-plugin/service'
+    - id: memorylake-tools
+      name: '@memorylake/dsh-plugin/tools'
