@@ -31,19 +31,19 @@ privacy notes, and design rationale.
 ```
 codex plugin marketplace add memorylake-ai/memorylake-harness
 codex plugin add memorylake@memorylake
+set up memorylake
 ```
 
-Then trust the hooks via `/hooks` inside a Codex session. See
-[`codex-plugin/README.md`](codex-plugin/README.md).
+The last line is asked inside a Codex session, after trusting the hooks via
+`/hooks`. See [`codex-plugin/README.md`](codex-plugin/README.md).
 
 ## DeepSeek Harness (dsh)
 
 ```
 dsh plugin --profile web add @memorylake/dsh-plugin
 dsh web
+/memorylake-init
 ```
 
-Then invoke `/memorylake-init` in a session (machines already set up for
-Claude Code or Codex need no further steps). `web` is dsh's built-in Web UI
-profile; to use another profile, put its name after `--profile` instead. See
-[`dsh-plugin/README.md`](dsh-plugin/README.md).
+The last line is typed in a session; machines already set up for Claude Code
+or Codex can skip it. See [`dsh-plugin/README.md`](dsh-plugin/README.md).
