@@ -92,6 +92,13 @@ masquerading as "no such memory".
 | Read-side nudge | `PreToolUse(Read)` on memory files | none — Codex injects its memory summary itself; the skill covers discovery |
 | Per-project routing | repo identity of the session cwd (remote URL, else path) | the same identity, derived from the `cwd:` baked into each summary's metadata header (extension notes: shared fallback project) |
 
+## Requirements
+
+`jq` — the hooks parse Codex's JSON payloads with it. Without it the plugin
+cannot run, and says so rather than failing quietly: session start reports
+that recall is unavailable, and the sync hook reports that memories are not
+being uploaded. Install with `brew install jq` / `apt-get install jq`.
+
 ## Sandbox requirement
 
 `ml-recall` makes a network call, and Codex runs model-generated shell

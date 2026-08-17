@@ -311,3 +311,44 @@ ml_project_ids() {
 ml_codex_memories_dir() {
   printf '%s' "${CODEX_HOME:-$HOME/.codex}/memories"
 }
+
+# Per-session scratch directory (shared with the Claude Code plugin).
+ml_state_dir() {
+  printf '%s/state' "$(ml_data_dir)"
+}
+
+# Say out loud that jq is missing, then exit — never exit in silence.
+#
+# Mirrors claude-plugin/scripts/lib/common.sh (the canonical copy); keep the
+# two in sync. Every hook parses its stdin with jq, so without it they do
+# nothing, and the old bare `exit 0` meant a host with no jq (nixos, alpine, a
+# slim container) ran a plugin that looked healthy while memories quietly
+# stopped syncing. That contradicts the rule this plugin already states on the
+# sync path: a failed sync is said out loud, never silently swallowed.
+#
+# The notice is a FIXED string precisely because a JSON encoder is the thing
+# we are missing; nothing here interpolates untrusted input, so printf is safe.
+ml_exit_without_jq() {
+  local event="${1:-}" marker now mtime
+
+  # Only speak up for someone who actually configured Memory Lake — an
+  # unconfigured project must see no trace of this plugin. ml_load_config reads
+  # frontmatter with awk, so it works without the jq we are missing.
+  ml_load_config "$PWD" || exit 0
+
+  if [ "$event" = "SessionStart" ]; then
+    printf '%s\n' '{"systemMessage":"[Memory Lake] jq is not installed, so the plugin is inert: memories are NOT syncing and recall is unavailable. Install jq (brew install jq / apt-get install jq), then start a new session.","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Memory Lake is installed but inoperative this session: its jq dependency is missing. Memory recall is UNAVAILABLE — if a search returns nothing, say the memory backend could not be reached rather than concluding the memory does not exist."}}'
+    exit 0
+  fi
+
+  # stat's flags differ between BSD and GNU; try both rather than assume.
+  marker="$(ml_state_dir)/no-jq-notice"
+  now=$(date +%s)
+  if [ -f "$marker" ]; then
+    mtime=$(stat -f %m "$marker" 2>/dev/null || stat -c %Y "$marker" 2>/dev/null || printf '0')
+    [ $((now - mtime)) -lt 14400 ] && exit 0
+  fi
+  mkdir -p "$(ml_state_dir)" 2>/dev/null && : >"$marker" 2>/dev/null
+  printf '%s\n' '{"systemMessage":"[Memory Lake] jq is not installed, so memories are NOT being synced to Memory Lake. Local memory files are intact. Install jq (brew install jq / apt-get install jq) to enable syncing."}'
+  exit 0
+}

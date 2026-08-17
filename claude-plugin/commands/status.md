@@ -25,8 +25,10 @@ a prebuilt binary.
 command -v jq
 ```
 
-Missing → hooks exit silently and `ml-recall` refuses to run. On macOS:
-`brew install jq`.
+Missing → the plugin is inert and reports it: the session-start line says
+recall is unavailable, each memory write reports that it was saved locally but
+not synced, and `ml-recall` refuses to run. Nothing is lost locally; nothing
+reaches Memory Lake either. On macOS: `brew install jq`.
 
 ## 3. Logged in
 
