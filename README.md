@@ -39,9 +39,11 @@ Then trust the hooks via `/hooks` inside a Codex session. See
 ## DeepSeek Harness (dsh)
 
 ```
-dsh plugin --profile <name> add @memorylake/dsh-plugin
+dsh plugin --profile web add @memorylake/dsh-plugin
+dsh web
 ```
 
-Then boot the profile and invoke `/memorylake-init` in a session (machines
-already set up for Claude Code or Codex need no further steps). See
+Then invoke `/memorylake-init` in a session (machines already set up for
+Claude Code or Codex need no further steps). `web` is dsh's built-in Web UI
+profile; to use another profile, put its name after `--profile` instead. See
 [`dsh-plugin/README.md`](dsh-plugin/README.md).

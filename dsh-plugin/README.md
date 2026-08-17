@@ -22,10 +22,14 @@ it IS the harness's memory layer. It contributes:
 ## Install
 
 ```sh
-dsh plugin --profile <name> add @memorylake/dsh-plugin
-dsh --profile <name> --dump-config   # shows the "@memorylake/dsh-plugin" layer
-dsh --profile <name>
+dsh plugin --profile web add @memorylake/dsh-plugin
+dsh --profile web --dump-config   # shows the "@memorylake/dsh-plugin" layer
+dsh web
 ```
+
+`web` is dsh's built-in Web UI profile (auto-initialized on first use); any
+other profile name works the same way — the plugin composes with whatever
+surface the profile mounts.
 
 The package publishes with built `lib/`, so no build allowance is needed. A
 `github:` install also works — a self-contained `prepare` script builds from
