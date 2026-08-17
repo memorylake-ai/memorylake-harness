@@ -10,9 +10,10 @@ to the international endpoint.)
 | --- | --- | --- |
 | [`claude-plugin/`](claude-plugin/) | Claude Code | working — recall on read, sync on write, session status |
 | [`codex-plugin/`](codex-plugin/) | Codex | working — recall skill, per-turn memory sync, session status |
+| [`dsh-plugin/`](dsh-plugin/) | DeepSeek Harness (dsh) | working — memory tools, prompt guidance, session status; published as `@memorylake/dsh-plugin` |
 
-Both harnesses share one identity and data tree (`~/.memorylake/harness/`):
-configure once, use from both clients.
+All harnesses share one identity and data tree (`~/.memorylake/harness/`):
+configure once, use from every client.
 
 ## Claude Code
 
@@ -34,3 +35,13 @@ codex plugin add memorylake@memorylake
 
 Then trust the hooks via `/hooks` inside a Codex session. See
 [`codex-plugin/README.md`](codex-plugin/README.md).
+
+## DeepSeek Harness (dsh)
+
+```
+dsh plugin --profile <name> add @memorylake/dsh-plugin
+```
+
+Then boot the profile and invoke `/memorylake-init` in a session (machines
+already set up for Claude Code or Codex need no further steps). See
+[`dsh-plugin/README.md`](dsh-plugin/README.md).

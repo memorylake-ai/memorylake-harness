@@ -151,21 +151,18 @@ export function readOnlyNotice(sourcePath: string | undefined): string {
     + 'true in that file (or remove the key), or ask the user to.'
 }
 
-/** Cached availability the synchronous status-line provider reads. */
-interface StatusSnapshot {
-  availability: Availability
-  statusLine: boolean
-}
-
 /**
  * TTL-cached connectivity state behind the status line. The prompt-context
  * provider has a synchronous signature, so probing happens on a timer (a
- * plugin effect) and the provider only reads the latest snapshot. The disk
- * cache under `~/.memorylake/harness/status/<ws>.txt` is shared with the
- * other harnesses — data only (a project count), never rendered prose.
+ * plugin effect) and the provider only reads the latest snapshot — but the
+ * config gates (`status_line`, `enabled`, workspace presence) are re-read
+ * live at every assembly, so turning the feature off takes effect on the
+ * next prompt, not on the next TTL tick. The disk cache under
+ * `~/.memorylake/harness/status/<ws>.txt` is shared with the other
+ * harnesses — data only (a project count), never rendered prose.
  */
 class StatusCache {
-  private snapshot: StatusSnapshot | undefined
+  private availability: Availability | undefined
 
   constructor(
     private readonly ctx: Context,
@@ -174,42 +171,38 @@ class StatusCache {
 
   /**
    * Synchronous first fill so the very first prompt assembly of a session
-   * already has a line when the shared tree answers without network: config
-   * states are local, and a fresh cross-harness disk cache proves recent
-   * connectivity.
+   * already has a line when the shared tree answers without network: a
+   * fresh cross-harness disk cache proves recent connectivity.
    */
   prime(): void {
     const config = this.ctx.memorylake.effectiveConfig()
     if (config.state !== 'ready') {
-      this.snapshot = { availability: { state: config.state }, statusLine: config.statusLine }
+      this.availability = { state: config.state }
       return
     }
     const workspace = config.workspace ?? ''
     if (workspace.length > 0 && readStatusCache(workspace, this.ttlSeconds) !== undefined) {
-      this.snapshot = {
-        availability: { state: 'ready', workspace },
-        statusLine: config.statusLine,
-      }
+      this.availability = { state: 'ready', workspace }
     }
   }
 
-  /** Full refresh: shared config, binary, then one `project list` probe. */
-  async refresh(): Promise<void> {
+  /**
+   * Full refresh: shared config, then one `project list` probe.
+   * @param signal - aborts the probe when the plugin is disposed mid-flight.
+   */
+  async refresh(signal?: AbortSignal): Promise<void> {
     const config = this.ctx.memorylake.effectiveConfig()
     if (config.state !== 'ready') {
-      this.snapshot = { availability: { state: config.state }, statusLine: config.statusLine }
+      this.availability = { state: config.state }
       return
     }
     const workspace = config.workspace ?? ''
     const cached = workspace.length > 0 ? readStatusCache(workspace, this.ttlSeconds) : undefined
     if (cached !== undefined) {
-      this.snapshot = {
-        availability: { state: 'ready', workspace },
-        statusLine: config.statusLine,
-      }
+      this.availability = { state: 'ready', workspace }
       return
     }
-    const outcome = await this.ctx.memorylake.probeConnectivity()
+    const outcome = await this.ctx.memorylake.probeConnectivity({ signal })
     if (outcome.state === 'ready') {
       try {
         mkdirSync(statusCacheDir(), { recursive: true })
@@ -217,31 +210,30 @@ class StatusCache {
       } catch {
         // A read-only data tree only loses the cache, not the status line.
       }
-      this.snapshot = {
-        availability: { state: 'ready', workspace: outcome.workspace },
-        statusLine: config.statusLine,
-      }
+      this.availability = { state: 'ready', workspace: outcome.workspace }
       return
     }
-    this.snapshot = { availability: outcome, statusLine: config.statusLine }
+    this.availability = outcome
   }
 
-  /** The status line for the current snapshot; empty string means silence. */
+  /** The status line for the current assembly; empty string means silence. */
   text(): string {
-    const snapshot = this.snapshot
-    if (snapshot === undefined || !snapshot.statusLine) return ''
-    const availability = snapshot.availability
+    // Live gates first: silence must be immediate when the user disables the
+    // line or the whole plugin, not deferred to the next TTL tick.
+    const config = this.ctx.memorylake.effectiveConfig()
+    if (!config.statusLine || config.state !== 'ready') return ''
+    const availability = this.availability
+    if (availability === undefined) return ''
     switch (availability.state) {
       case 'ready':
-        return readyStatusLine(availability.workspace)
-      case 'unreachable': {
-        const workspace = this.ctx.memorylake.effectiveConfig().workspace ?? 'unknown'
-        return unreachableStatusLine(workspace)
-      }
+        return readyStatusLine(config.workspace ?? availability.workspace)
+      case 'unreachable':
+        return unreachableStatusLine(config.workspace ?? 'unknown')
       case 'not-logged-in':
         return NOT_LOGGED_IN_STATUS_LINE
-      // Unconfigured, disabled, and missing-binary sessions stay completely
-      // silent — a project that does not use Memory Lake sees no trace of it.
+      // Missing-binary (and stale unconfigured/disabled snapshots) stay
+      // silent — a session without a working Memory Lake sees no trace of it
+      // unless the failure would otherwise masquerade as missing memory.
       default:
         return ''
     }
@@ -267,8 +259,10 @@ export function apply(ctx: Context, config: Config): void {
   if (!Number.isInteger(config.topKMax) || config.topKMax <= 0) {
     throw new Error(`memorylake-tools config topKMax must be a positive integer, got ${String(config.topKMax)}`)
   }
-  if (!Number.isFinite(config.statusTtlSeconds) || config.statusTtlSeconds <= 0) {
-    throw new Error(`memorylake-tools config statusTtlSeconds must be a positive number, got ${String(config.statusTtlSeconds)}`)
+  // Upper bound keeps `ttl * 1000` inside the 32-bit setInterval range — an
+  // overflowing delay wraps to ~1 ms and turns the refresh into a spin loop.
+  if (!Number.isFinite(config.statusTtlSeconds) || config.statusTtlSeconds <= 0 || config.statusTtlSeconds > 2_000_000) {
+    throw new Error(`memorylake-tools config statusTtlSeconds must be a positive number of seconds no greater than 2000000, got ${String(config.statusTtlSeconds)}`)
   }
 
   const cwdOf = (exec: { agent?: { session: { header: { cwd?: string } } } | undefined }): string =>
@@ -330,15 +324,22 @@ export function apply(ctx: Context, config: Config): void {
       if (outcome.state !== 'ok') {
         return { facts: [] as SearchFact[], notice: unavailabilityNotice(outcome) }
       }
-      if (outcome.facts.length === 0) {
-        return { facts: [] as SearchFact[], notice: EMPTY_RESULT_HINT }
-      }
       const facts = outcome.facts.map(fact => ({ ...fact }))
+      // Partial failure must outrank the empty-result hint: telling the model
+      // "nothing matched, be honest about it" while queries silently failed
+      // is exactly the failure-looks-like-emptiness confusion this plugin
+      // exists to prevent.
       if (outcome.failedQueries > 0) {
+        const failed = `${outcome.failedQueries} of ${args.queries.length} queries failed to reach the backend`
         return {
           facts,
-          notice: `${outcome.failedQueries} of ${args.queries.length} queries failed to reach the backend; results may be incomplete.`,
+          notice: facts.length === 0
+            ? `${failed} and the rest matched nothing. Do not conclude the memory does not exist — the backend was partially unreachable; say so instead of inventing an answer.`
+            : `${failed}; results may be incomplete.`,
         }
+      }
+      if (facts.length === 0) {
+        return { facts, notice: EMPTY_RESULT_HINT }
       }
       return { facts }
     },
@@ -383,9 +384,7 @@ export function apply(ctx: Context, config: Config): void {
       render: (_args, value) => [{
         type: 'text',
         text: value.notice !== undefined && value.notice.length > 0
-          ? (value.added.length > 0
-              ? `Stored ${value.added.length} fact(s), then: ${value.notice}`
-              : value.notice)
+          ? value.notice
           : `Stored ${value.added.length} fact(s) in Memory Lake. They are searchable immediately, from any project or device.`,
       }],
     },
@@ -401,7 +400,14 @@ export function apply(ctx: Context, config: Config): void {
       }
       const outcome = await ctx.memorylake.addFacts(args.facts, { cwd, signal: exec.signal })
       if (outcome.state !== 'ok') {
-        return { added: outcome.added, notice: unavailabilityNotice(outcome) }
+        // A mid-batch failure must not read as "nothing was stored": name
+        // what made it in and what did not.
+        const notice = outcome.added.length > 0
+          ? `Stored ${outcome.added.length} of ${args.facts.length} facts, then the backend became `
+            + `unavailable (${outcome.state === 'unreachable' ? outcome.detail : outcome.state}). `
+            + 'The remaining facts were NOT stored — retry those, not the whole batch.'
+          : unavailabilityNotice(outcome)
+        return { added: outcome.added, notice }
       }
       return { added: outcome.added }
     },
@@ -467,12 +473,18 @@ export function apply(ctx: Context, config: Config): void {
     text: () => statusCache.text(),
   })
   ctx.effect(() => {
-    void statusCache.refresh()
+    const lifetime = new AbortController()
+    void statusCache.refresh(lifetime.signal)
     const timer = setInterval(() => {
-      void statusCache.refresh()
+      void statusCache.refresh(lifetime.signal)
     }, config.statusTtlSeconds * 1000)
     timer.unref?.()
-    return () => clearInterval(timer)
+    return () => {
+      clearInterval(timer)
+      // Abort an in-flight probe so a disposed/hot-reloaded plugin does not
+      // leave a CLI child running toward its own timeout.
+      lifetime.abort(new Error('memorylake-tools disposed'))
+    }
   })
 
   ctx.skills.register({

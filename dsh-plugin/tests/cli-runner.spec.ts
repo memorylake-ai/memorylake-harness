@@ -25,10 +25,15 @@ describe('argv builders', () => {
       '--actors', 'act-1',
       '--types', 'fact',
       '--top-k', '5',
-      hostile,
+      '--', hostile,
     ])
     // The hostile query is exactly one element, verbatim.
     expect(argv[argv.length - 1]).toBe(hostile)
+  })
+
+  it('escapes leading-dash positionals with -- so clap never eats them as flags', () => {
+    expect(searchArgv('/m', 'ws', undefined, 3, '-dash query').slice(-2)).toEqual(['--', '-dash query'])
+    expect(factAddArgv('/m', 'ws', 'act', '--weird fact').slice(-2)).toEqual(['--', '--weird fact'])
   })
 
   it('omits --actors when no actor is configured', () => {
@@ -37,8 +42,8 @@ describe('argv builders', () => {
   })
 
   it('builds fact add/delete, auth, version, and project list argv', () => {
-    expect(factAddArgv('/m', 'ws', 'act', 'a fact')).toEqual(['/m', 'fact', 'add', '--workspace', 'ws', '--actor', 'act', 'a fact'])
-    expect(factDeleteArgv('/m', 'ws', 'act', ['f-1', 'f-2'])).toEqual(['/m', 'fact', 'delete', '--workspace', 'ws', '--actor', 'act', 'f-1', 'f-2'])
+    expect(factAddArgv('/m', 'ws', 'act', 'a fact')).toEqual(['/m', 'fact', 'add', '--workspace', 'ws', '--actor', 'act', '--', 'a fact'])
+    expect(factDeleteArgv('/m', 'ws', 'act', ['f-1', 'f-2'])).toEqual(['/m', 'fact', 'delete', '--workspace', 'ws', '--actor', 'act', '--', 'f-1', 'f-2'])
     expect(authStatusArgv('/m')).toEqual(['/m', 'auth', 'status'])
     expect(versionArgv('/m')).toEqual(['/m', 'version'])
     expect(projectListArgv('/m', 'ws')).toEqual(['/m', 'project', 'list', '--workspace', 'ws'])
@@ -96,6 +101,20 @@ describe('runCli against the mock binary', () => {
     tree.setScenario({ 'auth status': { exitCode: 1, stderr: 'Error: not logged in (no active profile)' } })
     const result = await runCli(subprocess, authStatusArgv(mockBinaryPath()), options)
     expect(classifyFailure(result)).toEqual({ state: 'not-logged-in' })
+  })
+
+  it('never reads auth failure out of stdout or embedded digits', async () => {
+    // "401" inside a larger number must not match, and user content echoed on
+    // stdout (a fact containing "unauthorized") must not flip the remediation.
+    tree.setScenario({
+      'fact add': {
+        exitCode: 1,
+        stdout: '{"echo": "note that unauthorized access is forbidden"}',
+        stderr: 'connect failed: os error 14012',
+      },
+    })
+    const result = await runCli(subprocess, factAddArgv(mockBinaryPath(), 'ws', 'act', 'x'), options)
+    expect(classifyFailure(result).state).toBe('unreachable')
   })
 
   it('classifies other failures as unreachable with a stderr summary', async () => {

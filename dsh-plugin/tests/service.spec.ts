@@ -206,6 +206,16 @@ describe('MemorylakeService', () => {
       const outcome = await memorylake.forgetFacts(['f-1'])
       expect(outcome.state).toBe('unreachable')
     })
+
+    it('does not mistake a JSON error object for a successful delete', async () => {
+      // A failing CLI can print a JSON error to stdout; without the shape
+      // check this would read as "forgot zero facts, success".
+      tree.writeGlobalConfig(READY_CONFIG)
+      tree.setScenario({ 'fact delete': { exitCode: 1, stdout: { error: 'boom' }, stderr: 'request failed' } })
+      const memorylake = await service()
+      const outcome = await memorylake.forgetFacts(['f-1'])
+      expect(outcome.state).toBe('unreachable')
+    })
   })
 
   describe('probeConnectivity and version', () => {

@@ -141,6 +141,12 @@ function arrayField(node: unknown, key: string): unknown[] {
   return Array.isArray(value) ? value : []
 }
 
+/** Whether the payload node actually carries `key` as an array. */
+function hasArrayField(node: unknown, key: string): boolean {
+  return typeof node === 'object' && node !== null
+    && Array.isArray((node as Record<string, unknown>)[key])
+}
+
 /** Parse one search payload's facts, keeping the score for ordering only. */
 function parseSearchFacts(payload: unknown): ScoredFact[] {
   const facts: ScoredFact[] = []
@@ -397,7 +403,11 @@ export default class MemorylakeService extends Service {
       factDeleteArgv(pre.binary, workspace, actor, ids),
       this.runOptions(options.signal),
     )
-    if (result.hasPayload) {
+    // Trust the payload only when it carries the per-id outcome shape: a
+    // JSON error object on stdout with a non-zero exit (an auth or network
+    // failure) must never read as "successfully forgot zero facts".
+    if (result.hasPayload
+      && (hasArrayField(result.payload, 'forgotten') || hasArrayField(result.payload, 'not_found'))) {
       const { forgotten, notFound } = parseForgetPayload(result.payload)
       return { state: 'ok', forgotten, notFound }
     }

@@ -60,8 +60,14 @@ export type CliFailure =
   | { state: 'not-logged-in' }
   | { state: 'unreachable'; detail: string }
 
-/** Output text shapes that mean "the login state is the problem, not the network". */
-const AUTH_FAILURE_PATTERN = /not logged in|no active profile|no credentials|unauthorized|invalid api key|401/i
+/**
+ * stderr shapes that mean "the login state is the problem, not the network".
+ * Word-bounded 401 (a request id or errno like "os error 14012" must not
+ * match), and applied to stderr ONLY: stdout can echo user content (a fact
+ * containing the word "unauthorized"), which must never flip the remediation
+ * from "backend unreachable" to "log in again".
+ */
+const AUTH_FAILURE_PATTERN = /not logged in|no active profile|no credentials|unauthorized|invalid api key|\b401\b/i
 
 /**
  * Run one CLI invocation to completion and collect its outcome.
@@ -151,8 +157,7 @@ export function classifyFailure(result: CliResult): CliFailure {
   if (result.timedOut) {
     return { state: 'unreachable', detail: `the memorylake CLI timed out (${result.argv.slice(1, 3).join(' ')})` }
   }
-  const text = `${result.stderr}\n${result.stdout}`
-  if (AUTH_FAILURE_PATTERN.test(text)) return { state: 'not-logged-in' }
+  if (AUTH_FAILURE_PATTERN.test(result.stderr)) return { state: 'not-logged-in' }
   const detail = result.stderr
     .split('\n')
     .map(line => line.trim())
@@ -161,6 +166,12 @@ export function classifyFailure(result: CliResult): CliFailure {
     .join(' ')
   return { state: 'unreachable', detail: detail.length > 0 ? detail : `exit code ${String(result.exitCode)}` }
 }
+
+// The `--` before each positional below is load-bearing: queries and fact
+// texts are arbitrary user language, and one starting with `-` would
+// otherwise be a clap usage error ("unexpected argument '-d' found") that
+// this plugin then misclassifies as an unreachable backend. Verified against
+// the real CLI: `--` ends option parsing and the positional passes verbatim.
 
 /** argv for `memorylake search`, facts only (v1), one query per invocation. */
 export function searchArgv(
@@ -172,18 +183,18 @@ export function searchArgv(
 ): string[] {
   const argv = [binary, 'search', '--workspace', workspace]
   if (actor !== undefined && actor.length > 0) argv.push('--actors', actor)
-  argv.push('--types', 'fact', '--top-k', String(topK), query)
+  argv.push('--types', 'fact', '--top-k', String(topK), '--', query)
   return argv
 }
 
 /** argv for `memorylake fact add` with one fact (facts are added one per call). */
 export function factAddArgv(binary: string, workspace: string, actor: string, fact: string): string[] {
-  return [binary, 'fact', 'add', '--workspace', workspace, '--actor', actor, fact]
+  return [binary, 'fact', 'add', '--workspace', workspace, '--actor', actor, '--', fact]
 }
 
 /** argv for `memorylake fact delete` over a batch of ids. */
 export function factDeleteArgv(binary: string, workspace: string, actor: string, ids: readonly string[]): string[] {
-  return [binary, 'fact', 'delete', '--workspace', workspace, '--actor', actor, ...ids]
+  return [binary, 'fact', 'delete', '--workspace', workspace, '--actor', actor, '--', ...ids]
 }
 
 /** argv for `memorylake auth status`. */

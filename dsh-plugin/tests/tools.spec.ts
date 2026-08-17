@@ -89,6 +89,9 @@ describe('memorylake-tools plugin', () => {
     await ctx.plugin(MemorylakeService, { binaryPath: mockBinaryPath() })
     const scope = ctx.plugin(tools, { topKMax: 0, statusTtlSeconds: 600 })
     await expect(scope).rejects.toThrow('topKMax')
+    // A TTL past the 32-bit setInterval range would wrap to a ~1ms spin loop.
+    const overflow = ctx.plugin(tools, { topKMax: 10, statusTtlSeconds: 3_000_000 })
+    await expect(overflow).rejects.toThrow('statusTtlSeconds')
   })
 
   describe('memory_search', () => {
@@ -138,6 +141,24 @@ describe('memorylake-tools plugin', () => {
       expect(notice).toContain('not to the memory not existing')
     })
 
+    it('reports partial backend failure instead of the plain empty-result hint', async () => {
+      tree.writeGlobalConfig(READY_CONFIG)
+      tree.setScenario({
+        search: {
+          exitCode: 1,
+          stderr: 'connection reset',
+          byLastArg: { 'good query': { exitCode: 0, stdout: { facts: [] } } },
+        },
+      })
+      await boot()
+      const result = await call('memory_search', { queries: ['good query', 'bad query'] })
+      if (result.isError) throw new Error('expected success')
+      const notice = (result.value as { notice?: string }).notice ?? ''
+      expect(notice).toContain('1 of 2 queries failed to reach the backend')
+      expect(notice).toContain('partially unreachable')
+      expect(notice).not.toBe(EMPTY_RESULT_HINT)
+    })
+
     it('validates queries and top_k bounds', async () => {
       tree.writeGlobalConfig(READY_CONFIG)
       await boot()
@@ -178,6 +199,25 @@ describe('memorylake-tools plugin', () => {
       const result = await call('memory_remember', { facts: ['a fact'] })
       if (result.isError) throw new Error('expected success')
       expect((result.value as { notice?: string }).notice).toContain('/memorylake-init')
+    })
+
+    it('names what was and was not stored on a mid-batch failure', async () => {
+      tree.writeGlobalConfig(READY_CONFIG)
+      tree.setScenario({
+        'fact add': {
+          exitCode: 1,
+          stderr: 'connection refused',
+          byLastArg: { 'first fact': { exitCode: 0, stdout: { facts: [{ id: 'f-1', fact: 'first fact' }] } } },
+        },
+      })
+      await boot()
+      const result = await call('memory_remember', { facts: ['first fact', 'second fact'] })
+      if (result.isError) throw new Error('expected domain notice, not a tool error')
+      const value = result.value as { added: unknown[]; notice?: string }
+      expect(value.added).toHaveLength(1)
+      expect(value.notice).toContain('Stored 1 of 2 facts')
+      expect(value.notice).toContain('NOT stored')
+      expect(text(result)).toContain('Stored 1 of 2 facts')
     })
   })
 
@@ -233,6 +273,19 @@ describe('memorylake-tools plugin', () => {
         expect(line).toContain('UNAVAILABLE')
         expect(line).toContain('rather than concluding the memory does not exist')
       })
+    })
+
+    it('goes silent IMMEDIATELY when status_line is turned off mid-session', async () => {
+      tree.writeGlobalConfig(READY_CONFIG)
+      mkdirSync(join(tree.dataDir, 'status'), { recursive: true })
+      writeFileSync(join(tree.dataDir, 'status', 'ws-test.txt'), '3')
+      await boot()
+      expect(await statusText()).toContain('Memory Lake: connected')
+      // Config gates are re-read live at every assembly — no TTL wait.
+      tree.writeGlobalConfig(READY_CONFIG.replace('status_line: true', 'status_line: false'))
+      expect(await statusText()).toBe('')
+      tree.writeGlobalConfig(READY_CONFIG.replace('enabled: true', 'enabled: false'))
+      expect(await statusText()).toBe('')
     })
 
     it('probes once and reports connected, writing the shared cache', async () => {
