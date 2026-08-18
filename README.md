@@ -11,6 +11,7 @@ to the international endpoint.)
 | [`claude-plugin/`](claude-plugin/) | Claude Code | working — recall on read, sync on write, session status |
 | [`codex-plugin/`](codex-plugin/) | Codex | working — recall skill, per-turn memory sync, session status |
 | [`dsh-plugin/`](dsh-plugin/) | DeepSeek Harness (dsh) | working — memory tools, prompt guidance, session status; published as `@memorylake/dsh-plugin` |
+| [`opencode-plugin/`](opencode-plugin/) | opencode | working — memory tools, system-prompt protocol, compaction guidance |
 
 All harnesses share one identity and data tree (`~/.memorylake/harness/`):
 configure once, use from every client.
@@ -47,3 +48,17 @@ dsh web
 
 The last line is typed in a session; machines already set up for Claude Code
 or Codex can skip it. See [`dsh-plugin/README.md`](dsh-plugin/README.md).
+
+## opencode
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@memorylake/opencode-plugin"]
+}
+```
+
+in `opencode.json`, then `set up memorylake` in a session. opencode has no
+memory of its own and cannot read Claude Code's memory directory, so a machine
+already set up for another harness gets its existing memories here on install
+— skip the setup line. See [`opencode-plugin/README.md`](opencode-plugin/README.md).
