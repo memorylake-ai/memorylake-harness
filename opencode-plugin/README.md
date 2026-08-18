@@ -16,15 +16,23 @@ starting a new collection.
 
 ## Install
 
+```bash
+opencode plugin @memorylake/opencode-plugin -g
+```
+
+`-g` installs into `~/.config/opencode/opencode.json`, so every project gets
+it; drop the flag to install into the current project only. The command edits
+the config for you and opencode fetches the package with Bun on next start.
+
+By hand, the equivalent is an entry in `opencode.json` (project) or
+`~/.config/opencode/opencode.json` (global):
+
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["@memorylake/opencode-plugin"]
 }
 ```
-
-in `opencode.json` (project) or `~/.config/opencode/opencode.json` (global).
-opencode installs it with Bun on next start.
 
 If you already ran `/memorylake:init` in Claude Code, or set up the Codex or dsh
 plugin, **you are already configured** — all four harnesses share one identity
@@ -123,7 +131,8 @@ reason to accept.)
 
 ## Uninstall
 
-Remove the entry from `opencode.json`. The shared data tree
+Remove the `@memorylake/opencode-plugin` entry from whichever
+`opencode.json` it was added to. The shared data tree
 (`~/.memorylake/harness/`) and CLI credentials (`~/.memorylake/`) belong to all
 four harnesses — remove them only if you are done with every one.
 
@@ -138,3 +147,22 @@ npm run build
 
 `test/setup.ts` redirects `MEMORYLAKE_PLUGIN_DATA` for the whole suite, so tests
 cannot touch a real `~/.memorylake` tree.
+
+To run a local build inside opencode without publishing, point a plugin file at
+`dist/`. opencode auto-loads `{plugin,plugins}/*.{ts,js}` from `.opencode/` in a
+project, or from `~/.config/opencode/` globally:
+
+```bash
+mkdir -p ~/.config/opencode/plugin
+echo "export { default } from \"$PWD/dist/index.js\"" \
+  > ~/.config/opencode/plugin/memorylake.js
+```
+
+Rebuild after every source change — opencode loads the built file, not `src/`.
+Remove that file to uninstall. Note that opencode does not deduplicate plugins:
+installed both globally and per-project, it loads twice and registers every tool
+twice.
+
+To check what actually reached the model, point a provider `baseURL` at a local
+endpoint that logs the request body — the system prompt, tool schemas, and
+messages all arrive there, with no model call and no cost.
