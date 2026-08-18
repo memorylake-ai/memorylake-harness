@@ -51,14 +51,12 @@ or Codex can skip it. See [`dsh-plugin/README.md`](dsh-plugin/README.md).
 
 ## opencode
 
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@memorylake/opencode-plugin"]
-}
+```
+opencode plugin @memorylake/opencode-plugin -g
+set up memorylake
 ```
 
-in `opencode.json`, then `set up memorylake` in a session. opencode has no
-memory of its own and cannot read Claude Code's memory directory, so a machine
-already set up for another harness gets its existing memories here on install
-— skip the setup line. See [`opencode-plugin/README.md`](opencode-plugin/README.md).
+The last line is typed in a session. opencode has no memory of its own and
+cannot read Claude Code's memory directory, so a machine already set up for
+another harness gets its existing memories here on install — skip the setup
+line. See [`opencode-plugin/README.md`](opencode-plugin/README.md).
