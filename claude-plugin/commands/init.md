@@ -28,23 +28,34 @@ If missing, ask the user (AskUserQuestion) which way to install:
   ```bash
   repo="memorylake-ai/memorylake-cli"
   # Detect platform → release target triple
+  # Windows publishes a .zip holding memorylake.exe; the rest publish .tar.gz.
+  ext=tar.gz; exe=
   case "$(uname -sm)" in
     "Darwin arm64")  target=aarch64-apple-darwin ;;
     "Darwin x86_64") target=x86_64-apple-darwin ;;
     "Linux x86_64")  target=x86_64-unknown-linux-gnu ;;
     "Linux aarch64") target=aarch64-unknown-linux-gnu ;;
+    MINGW*\ x86_64|MSYS*\ x86_64|CYGWIN*\ x86_64)
+      target=x86_64-pc-windows-msvc;  ext=zip; exe=.exe ;;
+    MINGW*\ aarch64|MSYS*\ aarch64|CYGWIN*\ aarch64)
+      target=aarch64-pc-windows-msvc; ext=zip; exe=.exe ;;
   esac
   # Resolve the latest release tag
   tag=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | jq -r .tag_name)
   # Download, verify the checksum, extract just the binary
   cd "$(mktemp -d)"
-  curl -fsSLO "https://github.com/$repo/releases/download/$tag/memorylake-$tag-$target.tar.gz"
-  curl -fsSLO "https://github.com/$repo/releases/download/$tag/memorylake-$tag-$target.tar.gz.sha256"
-  shasum -a 256 -c "memorylake-$tag-$target.tar.gz.sha256"
-  tar -xzf "memorylake-$tag-$target.tar.gz"
+  curl -fsSLO "https://github.com/$repo/releases/download/$tag/memorylake-$tag-$target.$ext"
+  curl -fsSLO "https://github.com/$repo/releases/download/$tag/memorylake-$tag-$target.$ext.sha256"
+  shasum -a 256 -c "memorylake-$tag-$target.$ext.sha256"
+  case "$ext" in
+    zip) unzip -q "memorylake-$tag-$target.zip" ;;
+    *)   tar -xzf "memorylake-$tag-$target.tar.gz" ;;
+  esac
+  # Locate the binary instead of assuming the archive's internal layout.
+  src=$(find . -type f -name "memorylake$exe" | head -n 1)
   mkdir -p "$HOME/.memorylake/bin"
-  install -m 0755 "memorylake-$tag-$target/memorylake" "$HOME/.memorylake/bin/memorylake"
-  "$HOME/.memorylake/bin/memorylake" version
+  install -m 0755 "$src" "$HOME/.memorylake/bin/memorylake$exe"
+  "$HOME/.memorylake/bin/memorylake$exe" version
   ```
 
   If the release lookup 404s, no release has been published yet — tell the
