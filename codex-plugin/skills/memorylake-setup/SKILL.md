@@ -46,7 +46,11 @@ curl -fsSLO "https://github.com/$repo/releases/download/$tag/memorylake-$tag-$ta
 curl -fsSLO "https://github.com/$repo/releases/download/$tag/memorylake-$tag-$target.$ext.sha256"
 shasum -a 256 -c "memorylake-$tag-$target.$ext.sha256"
 case "$ext" in
-  zip) unzip -q "memorylake-$tag-$target.zip" ;;
+  # Git for Windows does not ship unzip; fall back to the libarchive tar.exe
+  # Windows 10+ puts in System32 (it reads zip), then to PowerShell.
+  zip) unzip -q "memorylake-$tag-$target.zip" 2>/dev/null \
+         || tar -xf "memorylake-$tag-$target.zip" 2>/dev/null \
+         || powershell.exe -NoProfile -Command "Expand-Archive -Path 'memorylake-$tag-$target.zip' -DestinationPath ." ;;
   *)   tar -xzf "memorylake-$tag-$target.tar.gz" ;;
 esac
 # Locate the binary instead of assuming the archive's internal layout.
