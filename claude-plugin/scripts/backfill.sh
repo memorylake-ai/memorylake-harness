@@ -60,7 +60,11 @@ projects_dir="$HOME/.claude/projects"
 [ -d "$projects_dir" ] || { echo "backfill: no local auto-memory found ($projects_dir)"; exit 0; }
 
 synced=0 skipped_deny=0 failed=0 unresolved=0
-declare -a failures unresolved_names
+# Initialized empty, not merely declared: under `set -u` a declared-but-unset
+# array makes the ${#...[@]} tests in the summary below abort the script with
+# `failures: unbound variable` (measured, bash 5.3), so a run with nothing to
+# report ended in an error instead of its summary.
+declare -a failures=() unresolved_names=()
 
 for mem_dir in "$projects_dir"/*/memory; do
   [ -d "$mem_dir" ] || continue

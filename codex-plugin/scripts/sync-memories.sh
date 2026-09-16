@@ -94,14 +94,14 @@ ml_summary_display() {
 # already checked before the worker detached.
 ml_summary_allowed() { # $1 = the summary's cwd (the directory may be gone)
   local dir says="" d
-  dir=$(cd -- "$1" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; } || printf '%s' "$1")
+  dir=$(ml_posix_path "$(cd -- "$1" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; } || printf '%s' "$1")")
   d="$dir"
   while [ -n "$d" ] && [ "$d" != "/" ]; do
     if [ -f "$d/.claude/memorylake.local.md" ]; then
       says=$(ml_frontmatter_get "$d/.claude/memorylake.local.md" sync_on_write)
       break
     fi
-    d=$(dirname -- "$d")
+    d=$(ml_parent_dir "$d")
   done
   if [ -n "$says" ]; then
     ml_flag_enabled "$says"
@@ -204,7 +204,7 @@ run_worker() {
   # trusting the parent: files may have changed since detach.
   failed=""
   ordered=$(changed_memory_files | while IFS= read -r f; do
-    mtime=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || printf '0')
+    mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || printf '0')
     printf '%s\t%s\n' "$mtime" "$f"
   done | sort -rn | cut -f2-)
 

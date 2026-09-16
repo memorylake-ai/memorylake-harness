@@ -75,7 +75,11 @@ CACHE_TTL=600
 projects=""
 if [ -f "$CACHE_FILE" ]; then
   now=$(date +%s)
-  mtime=$(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || printf '0')
+  # stat's flags differ between BSD and GNU; try both, GNU FIRST. The order is
+  # load-bearing: `-f` on GNU is file-SYSTEM mode, so it succeeds on a real file
+  # and prints a block of filesystem stats instead of failing over to `-c %Y`,
+  # and the arithmetic below then dies with `File: unbound variable`.
+  mtime=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE" 2>/dev/null || printf '0')
   if [ $((now - mtime)) -lt $CACHE_TTL ]; then
     projects=$(cat "$CACHE_FILE" 2>/dev/null)
     case "$projects" in *[!0-9]*) projects="" ;; esac

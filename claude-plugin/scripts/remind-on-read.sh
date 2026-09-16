@@ -20,8 +20,13 @@ set -uo pipefail
 # alone (~5ms), where source + jq cost ~25ms (measured). The precise path
 # check below still applies; this only rejects obvious non-matches early.
 _raw_input=$(cat)
+# Windows supplies the same path with backslashes, JSON-escaped to `\\`; a
+# filter that only knows the forward-slash form matches nothing there, and the
+# hook exits before it has done anything at all.
 case "$_raw_input" in
   *"/.claude/projects/"*) : ;;
+  *'\\.claude\\projects\\'*) : ;;
+  *'\.claude\projects\'*) : ;;
   *) exit 0 ;;
 esac
 
@@ -39,6 +44,11 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
 
 [ -n "$file_path" ] || exit 0
+# Fold the Windows path shapes to the POSIX form once, here: everything below
+# reads these two variables, and `basename 'C:\...\MEMORY.md'` is the whole
+# string rather than a filename, so even the index guard would miss.
+file_path=$(ml_posix_path "$file_path")
+[ -n "$cwd" ] && cwd=$(ml_posix_path "$cwd")
 ml_is_memory_file "$file_path" || exit 0
 ml_is_memory_index "$file_path" && exit 0
 

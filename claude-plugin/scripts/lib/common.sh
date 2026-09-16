@@ -8,6 +8,47 @@
 
 set -uo pipefail
 
+# ---------- path normalization -------------------------------------------------
+#
+# Under Git for Windows / Cygwin bash the same directory arrives in three
+# shapes: `C:\Users\me\repo` (what the harness hands a hook),
+# `C:/Users/me/repo` (what `git rev-parse --show-toplevel` prints), and
+# `/c/Users/me/repo` (what the shell itself understands). Only the last one
+# walks up to `/` and matches the `*/.claude/projects/*` path patterns, so
+# every path entering these helpers is folded to it.
+#
+# Confined to Windows shells on purpose: a backslash is a legal character in a
+# POSIX filename, so folding it on Linux or macOS would corrupt real paths.
+# $OSTYPE is a bash builtin (`msys`/`cygwin` under Git for Windows), so the
+# guard costs no process.
+ml_posix_path() {
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win32*) : ;;
+    *) printf '%s' "$1"; return 0 ;;
+  esac
+  local p="${1//\\//}"
+  case "$p" in
+    [A-Za-z]:|[A-Za-z]:/*)
+      command -v cygpath >/dev/null 2>&1 && p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p")
+      ;;
+  esac
+  printf '%s' "$p"
+}
+
+# The parent of a directory, or empty when there is no further up to go.
+#
+# The walk-up loops below used to end only at `/`, which a Windows path never
+# reaches: `dirname C:/Users/me` bottoms out at `C:` and then returns `C:` for
+# ever (measured), so the loop spun at 100% CPU until the hook's timeout killed
+# it — 5s for PreToolUse, 300s for the async PostToolUse, on every memory
+# write. Ending on "dirname made no progress" terminates on any platform and
+# leaves POSIX behaviour untouched, since `dirname /` is already `/`.
+ml_parent_dir() {
+  local p
+  p=$(dirname -- "$1")
+  [ "$p" != "$1" ] && [ "$p" != "." ] && printf '%s' "$p"
+}
+
 # Absolute path of a memory file, or empty when the path is not one.
 #
 # The auto-memory directory is ~/.claude/projects/<escaped-repo-root>/memory/.
@@ -15,7 +56,8 @@ set -uo pipefail
 # the git root would mean running git on every Read, and the shape is stable
 # enough that a false positive is impossible in practice.
 ml_is_memory_file() {
-  local path="$1"
+  local path
+  path=$(ml_posix_path "$1")
   case "$path" in
     */.claude/projects/*/memory/*.md) return 0 ;;
     *) return 1 ;;
@@ -96,13 +138,13 @@ ml_load_config() {
   local cwd="${1:-$PWD}" dir
   ML_PROJECT_CONFIG=""
   ML_GLOBAL_CONFIG=""
-  dir="$cwd"
+  dir=$(ml_posix_path "$cwd")
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
     if [ -f "$dir/.claude/memorylake.local.md" ]; then
       ML_PROJECT_CONFIG="$dir/.claude/memorylake.local.md"
       break
     fi
-    dir=$(dirname -- "$dir")
+    dir=$(ml_parent_dir "$dir")
   done
   [ -f "$(ml_data_dir)/config.md" ] && ML_GLOBAL_CONFIG="$(ml_data_dir)/config.md"
   { [ -n "$ML_PROJECT_CONFIG" ] || [ -n "$ML_GLOBAL_CONFIG" ]; } || return 1
@@ -159,7 +201,12 @@ ml_project_ids() {
   if [ -f "$cache_file" ]; then
     local now mtime
     now=$(date +%s)
-    mtime=$(stat -f %m "$cache_file" 2>/dev/null || stat -c %Y "$cache_file" 2>/dev/null || printf '0')
+    # GNU first: `stat -f` is file-SYSTEM mode there, so it SUCCEEDS on a real
+    # file and prints filesystem stats rather than failing over to the BSD
+    # form. The subtraction below then aborts this $() under set -u with
+    # `File: unbound variable`, PROJECTS comes back empty, and every recall
+    # inside the cache window silently loses its whole FILES section.
+    mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || printf '0')
     if [ $((now - mtime)) -lt 600 ]; then
       cat "$cache_file"
       return 0
@@ -184,19 +231,23 @@ ml_project_ids() {
 # specific wins), so check the project file's own sync_on_write FIRST and
 # consult this only when the setting came from the global config.
 ml_sync_denied() {
-  local dir="$1" list="${ML_SYNC_DENY:-}" entry
+  local dir list="${ML_SYNC_DENY:-}" entry
+  dir=$(ml_posix_path "$1")
   [ -n "$list" ] || return 1
   # Resolve to the PHYSICAL repo root: git rev-parse returns physical paths,
   # and on macOS /tmp-style symlinks a logical prefix would silently miss it
   # (found in e2e: /tmp/... vs /private/tmp/...). Both sides of the match are
   # physicalized so the comparison is apples to apples.
-  dir=$(cd -- "$dir" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; } || printf '%s' "$dir")
+  dir=$(ml_posix_path "$(cd -- "$dir" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; } || printf '%s' "$dir")")
   local IFS=','
   for entry in $list; do
     # Trim surrounding whitespace, expand a leading ~.
     entry="${entry#"${entry%%[![:space:]]*}"}"
     entry="${entry%"${entry##*[![:space:]]}"}"
     case "$entry" in "~"*) entry="$HOME${entry#\~}" ;; esac
+    # A user on Windows writes the prefix the way their shell shows it
+    # (`C:\work`); both sides of the comparison have to speak one dialect.
+    entry=$(ml_posix_path "$entry")
     [ -n "$entry" ] || continue
     # Physicalize existing prefixes too; a not-yet-existing path stays as-is.
     if [ -d "$entry" ]; then
@@ -248,9 +299,15 @@ ml_normalize_remote() {
 }
 
 # The physical root of the project containing a directory (the directory
-# itself, physicalized, when it is not in a git repo; verbatim when gone).
+# itself, physicalized, when it is not in a git repo; the normalized input
+# when gone), always in the POSIX form the walk-up loops can consume.
 ml_repo_root() {
-  (cd -- "$1" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; }) || printf '%s' "$1"
+  local dir root
+  dir=$(ml_posix_path "$1")
+  root=$( (cd -- "$dir" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; }) )
+  # git prints `C:/Users/me/repo` under Git for Windows, which is no more
+  # walkable than the backslash form — fold the answer too, not just the input.
+  ml_posix_path "${root:-$dir}"
 }
 
 # The stable identity (= ML project custom_id) of the project at a directory,
@@ -270,7 +327,7 @@ ml_project_identity() {
       explicit=$(ml_frontmatter_get "$d/.claude/memorylake.local.md" project_custom_id)
       break
     fi
-    d=$(dirname -- "$d")
+    d=$(ml_parent_dir "$d")
   done
   if [ -n "$explicit" ]; then
     ml_cid_slug "$explicit"
@@ -295,7 +352,17 @@ ml_project_display() {
 # Filesystem- and Drive-safe form of an identity (slashes and colons folded
 # to dashes) — identities are used as state directory and folder names.
 ml_cid_slug() {
-  printf '%s' "$1" | tr '/:' '--'
+  local s
+  s=$(printf '%s' "$1" | tr '/:' '--')
+  # Strip leading dashes. A non-repo identity is the physical path, which slugs
+  # to a string that BEGINS with one (/home/me/notes -> -home-me-notes,
+  # C:\WINDOWS\system32 -> -c-WINDOWS-system32); the CLI then reads
+  # `--custom-id -home-me-notes` as an option rather than its value, the
+  # project is never created, and every sync for that directory fails with
+  # `could not resolve or create ML project`. An identity only has to be
+  # deterministic, so the leading dashes cost nothing to drop.
+  while [ "${s#-}" != "$s" ]; do s="${s#-}"; done
+  printf '%s' "${s:-root}"
 }
 
 # Path to the memorylake binary, or empty when it is not installed.
@@ -378,11 +445,14 @@ ml_exit_without_jq() {
   fi
 
   # Write-path hooks fire on every tool call, so throttle to once every 4h.
-  # stat's flags differ between BSD and GNU; try both rather than assume.
+  # stat's flags differ between BSD and GNU; try both, GNU FIRST. The order is
+  # load-bearing: `-f` on GNU is file-SYSTEM mode, so it succeeds on a real file
+  # and prints a block of filesystem stats instead of failing over to `-c %Y`,
+  # and the arithmetic below then dies with `File: unbound variable`.
   marker="$(ml_state_dir)/no-jq-notice"
   now=$(date +%s)
   if [ -f "$marker" ]; then
-    mtime=$(stat -f %m "$marker" 2>/dev/null || stat -c %Y "$marker" 2>/dev/null || printf '0')
+    mtime=$(stat -c %Y "$marker" 2>/dev/null || stat -f %m "$marker" 2>/dev/null || printf '0')
     [ $((now - mtime)) -lt 14400 ] && exit 0
   fi
   mkdir -p "$(ml_state_dir)" 2>/dev/null && : >"$marker" 2>/dev/null
