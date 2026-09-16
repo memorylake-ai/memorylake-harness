@@ -10,6 +10,39 @@
 
 set -uo pipefail
 
+# ---------- path portability ----------------------------------------------------
+#
+# Claude Code on Windows (Git for Windows / MSYS bash) hands hooks a cwd such
+# as `C:\Users\me\repo` and a file_path with backslashes; `git rev-parse
+# --show-toplevel` there prints `C:/Users/me/repo`. Everything below assumes
+# POSIX paths, and a walk-up loop that stops only at `/` never terminates on a
+# drive-rooted path (`dirname C:` is `C:`) — that spun one bash.exe at 100 %
+# CPU per memory write until the hook timeout killed it (issue #10).
+
+# Fold a path to the POSIX form MSYS understands: backslashes to slashes, a
+# drive letter through cygpath when available. A no-op for paths that are
+# already POSIX, so it is safe to apply everywhere.
+ml_posix_path() {
+  local p="${1//\\//}"
+  case "$p" in
+    [A-Za-z]:/*|[A-Za-z]:)
+      if command -v cygpath >/dev/null 2>&1; then
+        p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p")
+      fi
+      ;;
+  esac
+  printf '%s' "$p"
+}
+
+# The parent of a directory, or nothing when there is none left to walk to:
+# `/`, a drive root (`C:`), or `.` all end the walk, because dirname stops
+# making progress there. Use as `while d=$(ml_parent_dir "$d"); do`.
+ml_parent_dir() {
+  local p
+  p=$(dirname -- "$1")
+  [ "$p" != "$1" ] && [ "$p" != "." ] && printf '%s' "$p"
+}
+
 # Root of the plugin family's shared cache/state tree.
 #
 # Lives under ~/.memorylake — the product's home on this machine, shared with
@@ -96,13 +129,13 @@ ml_load_config() {
   local cwd="${1:-$PWD}" dir
   ML_PROJECT_CONFIG=""
   ML_GLOBAL_CONFIG=""
-  dir="$cwd"
-  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+  dir=$(ml_posix_path "$cwd")
+  while [ -n "$dir" ]; do
     if [ -f "$dir/.claude/memorylake.local.md" ]; then
       ML_PROJECT_CONFIG="$dir/.claude/memorylake.local.md"
       break
     fi
-    dir=$(dirname -- "$dir")
+    dir=$(ml_parent_dir "$dir")
   done
   [ -f "$(ml_data_dir)/config.md" ] && ML_GLOBAL_CONFIG="$(ml_data_dir)/config.md"
   { [ -n "$ML_PROJECT_CONFIG" ] || [ -n "$ML_GLOBAL_CONFIG" ]; } || return 1
@@ -136,7 +169,7 @@ ml_sync_denied() {
   # and on macOS /tmp-style symlinks a logical prefix would silently miss it
   # (found in e2e: /tmp/... vs /private/tmp/...). Both sides of the match are
   # physicalized so the comparison is apples to apples.
-  dir=$(cd -- "$dir" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; } || printf '%s' "$dir")
+  dir=$(ml_repo_root "$dir")
   local IFS=','
   for entry in $list; do
     # Trim surrounding whitespace, expand a leading ~.
@@ -196,7 +229,9 @@ ml_normalize_remote() {
 # The physical root of the project containing a directory (the directory
 # itself, physicalized, when it is not in a git repo; verbatim when gone).
 ml_repo_root() {
-  (cd -- "$1" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; }) || printf '%s' "$1"
+  local dir
+  dir=$(ml_posix_path "$1")
+  ml_posix_path "$( (cd -- "$dir" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; }) || printf '%s' "$dir")"
 }
 
 # The stable identity (= ML project custom_id) of the project at a directory,
@@ -211,12 +246,12 @@ ml_project_identity() {
   local root d explicit="" url="" norm first_remote
   root=$(ml_repo_root "$1")
   d="$root"
-  while [ -n "$d" ] && [ "$d" != "/" ]; do
+  while [ -n "$d" ]; do
     if [ -f "$d/.claude/memorylake.local.md" ]; then
       explicit=$(ml_frontmatter_get "$d/.claude/memorylake.local.md" project_custom_id)
       break
     fi
-    d=$(dirname -- "$d")
+    d=$(ml_parent_dir "$d")
   done
   if [ -n "$explicit" ]; then
     ml_cid_slug "$explicit"
@@ -240,8 +275,16 @@ ml_project_display() {
 
 # Filesystem- and Drive-safe form of an identity (slashes and colons folded
 # to dashes) — identities are used as state directory and folder names.
+#
+# Leading dashes are trimmed: a physical-path identity (`/home/me/notes`,
+# `/c/WINDOWS/system32`) would otherwise slug to `-home-me-notes`, which the
+# CLI then parses as an option in `project create --custom-id` and the note
+# fails with "could not resolve or create ML project" (issue #10).
 ml_cid_slug() {
-  printf '%s' "$1" | tr '/:' '--'
+  local slug
+  slug=$(printf '%s' "$1" | tr '/:' '--')
+  slug="${slug#"${slug%%[!-]*}"}"
+  printf '%s' "$slug"
 }
 
 # Path to the memorylake binary, or empty when it is not installed.
@@ -286,7 +329,7 @@ ml_project_ids() {
   if [ -f "$cache_file" ]; then
     local now mtime
     now=$(date +%s)
-    mtime=$(stat -f %m "$cache_file" 2>/dev/null || stat -c %Y "$cache_file" 2>/dev/null || printf '0')
+    mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || printf '0')
     if [ $((now - mtime)) -lt 600 ]; then
       cat "$cache_file"
       return 0
@@ -341,11 +384,13 @@ ml_exit_without_jq() {
     exit 0
   fi
 
-  # stat's flags differ between BSD and GNU; try both rather than assume.
+  # GNU first: GNU `stat -f` is file-SYSTEM mode, so it succeeds with a
+  # non-numeric answer instead of falling through to `-c %Y` (issue #10).
+  # BSD `stat -c` is a real error, so that order falls through correctly.
   marker="$(ml_state_dir)/no-jq-notice"
   now=$(date +%s)
   if [ -f "$marker" ]; then
-    mtime=$(stat -f %m "$marker" 2>/dev/null || stat -c %Y "$marker" 2>/dev/null || printf '0')
+    mtime=$(stat -c %Y "$marker" 2>/dev/null || stat -f %m "$marker" 2>/dev/null || printf '0')
     [ $((now - mtime)) -lt 14400 ] && exit 0
   fi
   mkdir -p "$(ml_state_dir)" 2>/dev/null && : >"$marker" 2>/dev/null

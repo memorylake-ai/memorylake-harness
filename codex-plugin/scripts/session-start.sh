@@ -75,7 +75,7 @@ CACHE_TTL=600
 projects=""
 if [ -f "$CACHE_FILE" ]; then
   now=$(date +%s)
-  mtime=$(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || printf '0')
+  mtime=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE" 2>/dev/null || printf '0')
   if [ $((now - mtime)) -lt $CACHE_TTL ]; then
     projects=$(cat "$CACHE_FILE" 2>/dev/null)
     case "$projects" in *[!0-9]*) projects="" ;; esac

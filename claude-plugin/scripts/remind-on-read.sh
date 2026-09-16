@@ -20,8 +20,10 @@ set -uo pipefail
 # alone (~5ms), where source + jq cost ~25ms (measured). The precise path
 # check below still applies; this only rejects obvious non-matches early.
 _raw_input=$(cat)
+# The second pattern is the Windows shape: Claude Code passes
+# `C:\Users\me\.claude\projects\...`, which JSON escapes to `\\`.
 case "$_raw_input" in
-  *"/.claude/projects/"*) : ;;
+  *"/.claude/projects/"*|*'\\.claude\\projects\\'*) : ;;
   *) exit 0 ;;
 esac
 
@@ -36,6 +38,8 @@ command -v jq >/dev/null 2>&1 || exit 0
 input="$_raw_input"
 file_path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+file_path=$(ml_posix_path "$file_path")
+cwd=$(ml_posix_path "$cwd")
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
 
 [ -n "$file_path" ] || exit 0

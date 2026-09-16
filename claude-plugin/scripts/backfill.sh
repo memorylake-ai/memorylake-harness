@@ -102,7 +102,9 @@ done
 verb="in sync"; [ "$DRY_RUN" = 1 ] && verb="would sync"
 printf '\nbackfill summary: %d file(s) %s, %d skipped (sync_deny), %d failed, %d project dir(s) unresolvable\n' \
   "$synced" "$verb" "$skipped_deny" "$failed" "$unresolved"
-[ ${#failures[@]} -gt 0 ] 2>/dev/null && printf '  failed: %s\n' "${failures[@]}"
-[ ${#unresolved_names[@]} -gt 0 ] 2>/dev/null && printf '  unresolvable: %s\n' "${unresolved_names[@]}"
+# ${arr[@]+...}: an empty array is "unbound" to `set -u` on bash < 4.4 (and
+# the Git for Windows build), so expand it only when it has elements.
+[ -n "${failures[*]+x}" ] && printf '  failed: %s\n' "${failures[@]}"
+[ -n "${unresolved_names[*]+x}" ] && printf '  unresolvable: %s\n' "${unresolved_names[@]}"
 [ "$failed" -eq 0 ] || exit 1
 exit 0

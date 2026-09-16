@@ -50,6 +50,13 @@ If missing, ask the user (AskUserQuestion) which way to install:
   If the release lookup 404s, no release has been published yet — tell the
   user plainly and fall through to the next option.
 
+  On Windows (Git for Windows bash; `uname -s` prints `MINGW64_NT-…` or
+  `MSYS_NT-…`) the script above has no matching target. The release ships
+  `memorylake-$tag-x86_64-pc-windows-msvc.zip` (and an `aarch64-` variant)
+  with a `.sha256` next to it: tell the user to download and verify it,
+  unzip `memorylake.exe` into a directory on their PATH, and re-run
+  `/memorylake:init`; the plugin picks up any `memorylake` found on PATH.
+
 - **I'll install it myself** — point at the repository
   (`cargo install` from `memorylake-ai/memorylake-cli`, or a package the
   team distributes) and stop here; the user can re-run `/memorylake:init`

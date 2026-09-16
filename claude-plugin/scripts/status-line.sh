@@ -54,8 +54,10 @@ CACHE_TTL=600
 projects=""
 if [ -f "$CACHE_FILE" ]; then
   now=$(date +%s)
-  # stat's flags differ between BSD and GNU; try both rather than assume.
-  mtime=$(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || printf '0')
+  # GNU first: GNU `stat -f` is file-SYSTEM mode, so it succeeds with a
+  # non-numeric answer instead of falling through to `-c %Y` (issue #10).
+  # BSD `stat -c` is a real error, so that order falls through correctly.
+  mtime=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE" 2>/dev/null || printf '0')
   if [ $((now - mtime)) -lt $CACHE_TTL ]; then
     projects=$(cat "$CACHE_FILE" 2>/dev/null)
     case "$projects" in *[!0-9]*) projects="" ;; esac
