@@ -19,7 +19,7 @@ files stay on disk; they are simply no longer read or written.
 ## Install
 
 ```sh
-qwenpaw plugin install https://github.com/memorylake-ai/memorylake-harness/releases/download/qwenpaw-plugin-v0.2.0/memory-memorylake-0.2.0.zip
+qwenpaw plugin install https://github.com/memorylake-ai/memorylake-harness/releases/download/qwenpaw-plugin-v0.2.1/memory-memorylake-0.2.1.zip
 ```
 
 Works against a running QwenPaw (hot-loaded, no restart) and a stopped one
