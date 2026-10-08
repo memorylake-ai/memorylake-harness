@@ -1,4 +1,8 @@
-# memorylake-harness
+<p align="center">
+  <a href="https://memorylake.ai">
+    <img src=".github/assets/readme-hero.png" alt="MemoryLake Harness — Plug long-term memory into your agents. Works with Claude Code, Codex, DeepSeek Harness, opencode, QwenPaw, QwenWork and WorkBuddy" width="100%">
+  </a>
+</p>
 
 Client-side harnesses that connect coding agents to
 [MemoryLake](https://memorylake.ai) — cross-device long-term memory.
@@ -15,6 +19,10 @@ to the international endpoint.)
 | [`qwenpaw-plugin/`](qwenpaw-plugin/) | QwenPaw | working — memory backend plugin: automatic recall, memory tools, Console form, `/memorylake-status`; installs from a zip |
 | [`qwenwork-plugin/`](qwenwork-plugin/) | QwenWork | working — search-first reminder every turn, per-turn conversation sync, session status; the QwenWork agent installs it from this repo |
 | [`workbuddy-plugin/`](workbuddy-plugin/) | WorkBuddy | working — search-first recall every turn (reminder + gate), per-turn conversation sync, session status; installs from this repo as a plugin marketplace |
+
+<p align="center">
+  <img src=".github/assets/readme-agents.png" alt="All your agents flow into one MemoryLake: Claude Code, Codex, DeepSeek Harness, opencode, QwenPaw, QwenWork and WorkBuddy around a single MemoryLake" width="100%">
+</p>
 
 All harnesses share one identity and data tree (`~/.memorylake/harness/`):
 configure once, use from every client.
