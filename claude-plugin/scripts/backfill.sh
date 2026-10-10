@@ -31,8 +31,9 @@ DRY_RUN=0
 command -v jq >/dev/null 2>&1 || { echo "backfill: jq is required" >&2; exit 1; }
 ml_load_config "$PWD" || { echo "backfill: MemoryLake is not configured (run /memorylake:init first)" >&2; exit 1; }
 
-# Reverse the /-to-dash escaping of a memory directory name, using directory
-# existence to decide whether each dash is a separator or literal. Prints the
+# Reverse the escaping of a memory directory name (Claude Code turns both "/"
+# and "." into "-"), using directory existence to decide whether each dash is
+# a separator, a literal dash or a dot. Prints the
 # resolved absolute path, or nothing when resolution fails.
 ml_unescape_project_dir() {
   local rest="${1#-}" path="" seg=""
@@ -49,6 +50,9 @@ ml_unescape_project_dir() {
     esac
     if [ -d "$path/$seg" ]; then
       path="$path/$seg"
+      seg=""
+    elif [ -d "$path/${seg//-/.}" ]; then
+      path="$path/${seg//-/.}"
       seg=""
     fi
   done
