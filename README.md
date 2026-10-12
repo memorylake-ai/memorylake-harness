@@ -27,6 +27,11 @@ to the international endpoint.)
 All harnesses share one identity and data tree (`~/.memorylake/harness/`):
 configure once, use from every client.
 
+Every harness drives the [`memorylake` CLI](https://github.com/memorylake-ai/memorylake-cli)
+under the hood and fetches it on demand during setup, so none of the installs
+below needs a separate download. Put the CLI on your `PATH` to reach the same
+memory from a terminal or a script — see [From the terminal](#from-the-terminal).
+
 ## Claude Code
 
 ```
@@ -105,3 +110,21 @@ In WorkBuddy: Skills → Plugins → **+** (add marketplace) →
 
 Machines already set up for another harness can skip the last step. See
 [`workbuddy-plugin/README.md`](workbuddy-plugin/README.md).
+
+## From the terminal
+
+The harnesses log in through the CLI and keep the credentials where the CLI
+keeps them (`~/.memorylake/credentials.toml`), so a CLI you install yourself on
+a machine already set up for any harness is logged in from the first command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/memorylake-ai/memorylake-cli/main/scripts/install.sh | sh
+memorylake auth status
+memorylake lib upload ./report.pdf
+memorylake search "what did we decide about the schema"
+```
+
+Windows: `irm https://raw.githubusercontent.com/memorylake-ai/memorylake-cli/main/scripts/install.ps1 | iex`.
+The full command reference — files, facts, databases, conversations, agents,
+skills, teams — is in the
+[memorylake-cli README](https://github.com/memorylake-ai/memorylake-cli#commands).
