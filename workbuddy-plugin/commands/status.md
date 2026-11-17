@@ -49,7 +49,8 @@ Two levels, merged key by key, the more specific one winning:
 
 Report which files are in effect and the values of `enabled`, `workspace`,
 `actor`, `recall_reminder`, `recall_gate`, `sync_conversations` (and
-`sync_on_write`, which it falls back to), and `status_line`. Neither file
+`sync_on_write`, which it falls back to), `sync_attachments`, and
+`status_line`. Neither file
 exists -> point at `/memorylake:init`.
 
 `workspace` is the only strictly required field; without it every hook exits
@@ -95,3 +96,20 @@ queued for the next attempt). `last_state: error` with a non-zero `pending`
 means turns are being kept locally and retried after every turn -- name the
 detail and the fix (login, network, missing actor). No file at all while
 sync is ON means no turn has finished since it was enabled.
+
+## 8. Attachment sync
+
+Attachment sync is ON only when `sync_attachments` is an explicit `true` AND
+this folder's conversation-sync policy (step 4) is ON; say which of the two
+turned it off. When it is ON:
+
+```bash
+ls -t "$HOME"/.memorylake/harness/state/workbuddy/*/attachments.json 2>/dev/null | head -n 3 | xargs -I{} sh -c 'echo "== {}"; cat "{}"; echo'
+```
+
+Report `last_state`, `last_detail`, `last_at`, `uploaded`, `unchanged`
+(already in MemoryLake, not sent again), and `pending` (queued for the next
+attempt). List every entry of `skipped` with its reason -- "file type not
+synced" and "larger than N MB" are the filters working as designed, not
+errors. No file at all while it is ON means no message with an attachment
+has finished a turn yet.

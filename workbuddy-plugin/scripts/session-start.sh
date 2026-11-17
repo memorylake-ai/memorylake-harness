@@ -69,6 +69,9 @@ fi
 
 if [ -n "${ML_SYNC_CONVERSATIONS:-}" ] && ml_flag_enabled "$ML_SYNC_CONVERSATIONS" && ! ml_sync_denied "${cwd:-$PWD}"; then
   sync_line="Writing: this conversation (the user's messages and your final replies -- never tool calls or tool output) is appended to MemoryLake automatically after every turn, and memories are distilled from it on the server. Do not copy things into MemoryLake by hand."
+  if ml_wb_attachments_allowed "${cwd:-$PWD}"; then
+    sync_line="${sync_line} Documents and images the user attaches to a message are uploaded too, as searchable documents; do not upload them yourself."
+  fi
 else
   sync_line="Writing: conversation sync is OFF for this session, so nothing said here reaches MemoryLake."
 fi

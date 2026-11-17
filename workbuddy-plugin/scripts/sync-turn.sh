@@ -7,7 +7,8 @@
 #
 #   - TEXT only: what the user typed (host scaffolding stripped, see
 #     ml_wb_clean_prompt) and the assistant's final reply. Tool calls, tool
-#     output, thinking, and attachments stay on this machine.
+#     output, and thinking stay on this machine. (Attached files are a
+#     separate, opt-in upload: sync-attachments.sh.)
 #   - Two actors: the user's messages as the configured actor; the
 #     assistant's as an ASSISTANT actor created once per workspace (custom id
 #     workbuddy-agent).
