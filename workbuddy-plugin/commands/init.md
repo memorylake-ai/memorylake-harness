@@ -163,6 +163,11 @@ change takes effect on the next message):
   MemoryLake conversation, one per WorkBuddy session, filed under the
   project of the directory the session works in. When absent it follows
   `sync_on_write`.
+- `sync_attachments` — NOT written by default. Only when the user asks for
+  it: documents and images attached to a message (not source files, and
+  nothing over `sync_attachments_max_mb`, default 20) are uploaded to the
+  MemoryLake Library and imported into the session's project. It must be an
+  explicit `true`, and it never applies where conversation sync is off.
 - `recall_reminder` — every user message carries an instruction to search
   MemoryLake before replying.
 - `recall_gate` — if a turn reaches for a tool without having searched, that

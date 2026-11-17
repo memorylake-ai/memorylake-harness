@@ -150,6 +150,10 @@ ml_load_config() {
   ML_RECALL_GATE=$(ml_cfg_get recall_gate)
   ML_SYNC_CONVERSATIONS=$(ml_cfg_get sync_conversations)
   [ -n "$ML_SYNC_CONVERSATIONS" ] || ML_SYNC_CONVERSATIONS="$ML_SYNC_ON_WRITE"
+  # sync_attachments sends whole files, not text, so it never inherits from
+  # another key: absent means off (see ml_wb_attachments_allowed).
+  ML_SYNC_ATTACHMENTS=$(ml_cfg_get sync_attachments)
+  ML_SYNC_ATTACHMENTS_MAX_MB=$(ml_cfg_get sync_attachments_max_mb)
 
   # Kept for callers that display "which config file"; the most specific one.
   ML_CONFIG="${ML_PROJECT_CONFIG:-$ML_GLOBAL_CONFIG}"
@@ -157,6 +161,7 @@ ml_load_config() {
   export ML_CONFIG ML_PROJECT_CONFIG ML_GLOBAL_CONFIG
   export ML_WORKSPACE ML_PROJECTS ML_SYNC_DENY ML_PROJECT_CUSTOM_ID ML_ACTOR
   export ML_STATUS_LINE ML_RECALL_REMINDER ML_RECALL_GATE ML_SYNC_CONVERSATIONS
+  export ML_SYNC_ATTACHMENTS ML_SYNC_ATTACHMENTS_MAX_MB
   return 0
 }
 
@@ -459,6 +464,10 @@ ml_exit_without_jq() {
 #   outbox.jsonl   messages captured for conversation sync but not yet
 #                  appended (one JSON object per line)
 #   sync.json      the session's MemoryLake conversation id and last outcome
+#   attachments.jsonl    files the user attached, queued for upload (one JSON
+#                        object per line: path, name, blob, cwd)
+#   attachments.offset   how many transcript lines have been scanned for them
+#   attachments.json     the last attachment sync outcome
 #
 # WorkBuddy hands every hook the same session_id for the life of a chat, and
 # a subagent gets its own id -- which has no turn.json, so the gate leaves
@@ -507,4 +516,117 @@ ml_wb_is_search_command() {
     *memorylake*" search"*) return 0 ;;
   esac
   return 1
+}
+
+# ---------- WorkBuddy sync policy ------------------------------------------------
+
+# True when this folder's conversation may be uploaded.
+#
+# Outbound is explicit opt-in (see ml_load_config), and a folder on the
+# sync_deny list uploads nothing unless its own config file says otherwise.
+# Call after ml_load_config. $1 = the session's working directory.
+ml_wb_sync_allowed() {
+  [ -n "${ML_SYNC_CONVERSATIONS:-}" ] || return 1
+  ml_flag_enabled "$ML_SYNC_CONVERSATIONS" || return 1
+  if ml_sync_denied "$1"; then
+    local project_says=""
+    [ -n "${ML_PROJECT_CONFIG:-}" ] && project_says=$(ml_frontmatter_get "$ML_PROJECT_CONFIG" sync_conversations)
+    [ -n "$project_says" ] || return 1
+  fi
+  return 0
+}
+
+# True when files the user attaches in this folder may be uploaded.
+#
+# Stricter than every other flag: a file is more than the words typed about
+# it, so the key must be an explicit yes (absent is off, unlike
+# ml_flag_enabled), and it only ever narrows conversation sync -- a folder
+# that uploads no conversation uploads no attachment either.
+ml_wb_attachments_allowed() {
+  case "${ML_SYNC_ATTACHMENTS:-}" in
+    true|yes|on|1) : ;;
+    *) return 1 ;;
+  esac
+  ml_wb_sync_allowed "$1"
+}
+
+# The local files attached to a user message, one absolute path per line.
+#
+# stdin is the full text of one user message AS STORED IN THE TRANSCRIPT. The
+# UserPromptSubmit payload is no use here: WorkBuddy strips its own
+# <system-reminder> context from that prompt before a hook sees it (measured
+# 2026-11-13: a dropped PDF reached the hook only as the @"path" the user's
+# text shows). WorkBuddy does not copy a dragged or picked file anywhere: it
+# lists the original path in its per-turn context, in one or both of two
+# blocks (WorkBuddy 5.3.14, WorkbuddyUserPromptService):
+#
+#   <user_references>                 every local file or folder chip, one
+#   Note: ...                         JSON string per line. A dropped file
+#   "/Users/me/report.pdf"            lands here: its chip carries a bare
+#   </user_references>                path, not a file:// URI.
+#
+#   <attached_files>                  only chips whose URI is file://
+#   <file path="/Users/me/a.pdf" />
+#   </attached_files>
+#
+# Both are read and the result de-duplicated. Folders (trailing slash) are
+# dropped. The user's own text is cut out first, so a message that merely
+# QUOTES such a block attaches nothing. Images are not listed here; see
+# sync-attachments.sh.
+ml_wb_attached_files() {
+  perl -0777 -MJSON::PP -ne '
+    # Bytes in, bytes out: no utf8 layer, so a non-ASCII path survives as is.
+    my $json = JSON::PP->new->allow_nonref;
+    my (%seen, @paths);
+    s{<user_query>.*?</user_query>}{}gs;
+    while (m{<user_references>(.*?)</user_references>}gs) {
+      for my $line (split /\n/, $1) {
+        next unless $line =~ /^\s*(".*")\s*$/;
+        my $p = eval { $json->decode($1) };
+        push @paths, $p if defined $p && !ref $p;
+      }
+    }
+    while (m{<attached_files>(.*?)</attached_files>}gs) {
+      my $block = $1;
+      while ($block =~ m{<file\s+path="([^"]*)"}g) {
+        my $p = $1;
+        $p =~ s/&lt;/</g; $p =~ s/&gt;/>/g; $p =~ s/&quot;/"/g;
+        $p =~ s/&apos;/\x27/g; $p =~ s/&#39;/\x27/g; $p =~ s/&amp;/&/g;
+        push @paths, $p;
+      }
+    }
+    for my $p (@paths) {
+      next unless $p =~ m{^(?:/|[A-Za-z]:[\\/])} && $p !~ /\n/;
+      next if $p =~ m{[\\/]$};
+      print "$p\n" unless $seen{$p}++;
+    }
+  '
+}
+
+# True when a file name has an extension worth sending as a document.
+#
+# An allowlist, on purpose. WorkBuddy lists an @-mentioned workspace file the
+# same way as a dropped one, so without this a mention of a source file, a
+# key, or an .env would upload it. Documents and pictures only.
+ml_wb_attachment_ext_ok() {
+  local name ext
+  name=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')
+  case "$name" in
+    *.*) ext="${name##*.}" ;;
+    *) return 1 ;;
+  esac
+  case "$ext" in
+    pdf|doc|docx|ppt|pptx|xls|xlsx|csv|tsv|txt|md|markdown|rtf) return 0 ;;
+    png|jpg|jpeg|webp|gif|bmp) return 0 ;;
+  esac
+  return 1
+}
+
+# SHA-256 of a file (or of stdin when no argument), hex.
+ml_wb_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 ${1:+"$1"} 2>/dev/null | cut -d' ' -f1
+  else
+    sha256sum ${1:+"$1"} 2>/dev/null | cut -d' ' -f1
+  fi
 }

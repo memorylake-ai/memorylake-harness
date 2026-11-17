@@ -49,20 +49,7 @@ jq -n --arg id "$turn_id" '{id: $id}' >"$dir/turn.json.$$" 2>/dev/null \
 
 # ---------- queue the user's words ---------------------------------------------
 
-# Outbound is explicit opt-in (see ml_load_config), and a project on the
-# sync_deny list uploads nothing unless its own config file says otherwise.
-sync_allowed() {
-  [ -n "${ML_SYNC_CONVERSATIONS:-}" ] || return 1
-  ml_flag_enabled "$ML_SYNC_CONVERSATIONS" || return 1
-  if ml_sync_denied "${cwd:-$PWD}"; then
-    local project_says=""
-    [ -n "${ML_PROJECT_CONFIG:-}" ] && project_says=$(ml_frontmatter_get "$ML_PROJECT_CONFIG" sync_conversations)
-    [ -n "$project_says" ] || return 1
-  fi
-  return 0
-}
-
-if sync_allowed; then
+if ml_wb_sync_allowed "${cwd:-$PWD}"; then
   text=$(printf '%s' "$prompt" | ml_wb_clip 8000)
   jq -cn \
     --arg id "wb:${turn_id}:user" \

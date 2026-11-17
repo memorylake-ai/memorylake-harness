@@ -14,6 +14,9 @@ other MemoryLake clients. It is deliberately assertive about it:
 - **Every turn is remembered.** After each turn, the user's message and the
   assistant's final reply are appended to a MemoryLake conversation (one per
   WorkBuddy session); the server distills memories from it.
+- **Attached files can follow (opt-in).** With `sync_attachments: true`, the
+  documents and images the user attaches to a message are uploaded to the
+  MemoryLake Library and imported into the session's project.
 
 All MemoryLake harnesses share one identity and data tree
 (`~/.memorylake/harness/`): a machine already set up for Claude Code, Codex,
@@ -38,7 +41,7 @@ on a machine that is already set up. `/memorylake:status` is the health check.
 ## How it works
 
 WorkBuddy runs Claude-Code-style plugin hooks (command hooks only, on the
-desktop). The plugin uses four:
+desktop). The plugin uses four events:
 
 | Hook | Script | What it does |
 | --- | --- | --- |
@@ -46,6 +49,7 @@ desktop). The plugin uses four:
 | `UserPromptSubmit` | `scripts/prompt-submit.sh` | Starts the turn: resets the gate, queues the user's words for sync, injects the search-first reminder |
 | `PreToolUse` | `scripts/recall-gate.sh` | Marks the turn searched when the model runs `ml-recall`; otherwise holds back the turn's first other tool call, once |
 | `Stop` (async) | `scripts/sync-turn.sh` | Appends the queued user message and the final reply to the session's MemoryLake conversation |
+| `Stop` (async) | `scripts/sync-attachments.sh` | Reads the turn's attached files from the transcript and uploads them, when `sync_attachments` is on |
 
 Why hooks and not the system prompt: WorkBuddy assembles its desktop system
 prompt from a fixed set of sources with no plugin slot, and switches off the
@@ -58,7 +62,8 @@ is the closest a plugin can get.
 
 Text only: what the user typed (WorkBuddy's own injected context stripped)
 and the assistant's final reply, each clipped to 8000 characters. Tool calls,
-tool output, thinking, and attachments never leave the machine. Each message
+tool output, and thinking never leave the machine, and neither do attachments
+unless `sync_attachments` is turned on (next section). Each message
 carries a custom id derived from its turn, so retries never duplicate.
 
 The conversation is filed under the project of the directory the session
@@ -71,6 +76,36 @@ A failed sync keeps its messages queued under
 `~/.memorylake/harness/state/workbuddy/<session>/` and retries after the next
 turn; `/memorylake:status` shows the last outcome.
 
+### Attached files (opt-in)
+
+With `sync_attachments: true`, files the user attaches to a message are
+uploaded after the turn into a Library folder named `attachments--<project>`
+and imported into the same project as the conversation, so they are
+searchable as documents.
+
+WorkBuddy has no upload directory and tells `UserPromptSubmit` hooks nothing
+about attachments, so after each turn the plugin reads the new part of the
+session transcript and picks the files up where WorkBuddy leaves them:
+
+| Attached as | Where WorkBuddy keeps it | Synced |
+| --- | --- | --- |
+| A document (dropped, picked, or @-mentioned) | The original path, listed in the message's `<user_references>` / `<attached_files>` context | Yes |
+| An image (dropped, pasted, a screenshot) | Compressed, under `~/.workbuddy/blobs/`, referenced from the transcript | Yes, the compressed copy |
+| A cloud item (Tencent drive, Lexiang, ima) | Nowhere local | No |
+
+Two filters apply before anything is sent, because an @-mentioned workspace
+file looks exactly like a dropped one: only document and image types are
+uploaded (`pdf doc docx ppt pptx xls xlsx csv tsv txt md markdown rtf png jpg
+jpeg webp gif bmp`), and only up to `sync_attachments_max_mb` (default 20).
+Source files, archives, and anything else are skipped and named in
+`/memorylake:status`.
+
+A file is identified by its content hash: attaching the same file again
+sends nothing, and attaching the same path with new content replaces the
+earlier upload. Attachment sync is never wider than conversation sync -- a
+folder that uploads no conversation (`sync_deny`, or `sync_conversations:
+false`) uploads no attachment.
+
 ## Configuration
 
 Keys in `~/.memorylake/harness/config.md` (or a folder's
@@ -81,5 +116,7 @@ Keys in `~/.memorylake/harness/config.md` (or a folder's
 | `workspace`, `actor` | -- | Required; written by init |
 | `sync_conversations` | follows `sync_on_write` | Upload each turn. Outbound, so explicit opt-in |
 | `sync_deny` | -- | Comma-separated path prefixes that never upload |
+| `sync_attachments` | off | Upload the documents and images attached to a message. Must be an explicit `true` |
+| `sync_attachments_max_mb` | 20 | Largest attached file to upload |
 | `recall_reminder` | on | The per-turn search-first reminder |
 | `recall_gate` | on | Hold back the first unsearched tool call of a turn |

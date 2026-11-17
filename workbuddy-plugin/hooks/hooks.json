@@ -1,5 +1,5 @@
 {
-  "description": "MemoryLake: standing instructions at session start, a search-first reminder and recall gate every turn, and per-turn conversation sync.",
+  "description": "MemoryLake: standing instructions at session start, a search-first reminder and recall gate every turn, per-turn conversation sync, and opt-in sync of attached files.",
   "hooks": {
     "SessionStart": [
       {
@@ -40,6 +40,12 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/sync-turn.sh",
+            "async": true,
+            "timeout": 180
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/sync-attachments.sh",
             "async": true,
             "timeout": 180
           }

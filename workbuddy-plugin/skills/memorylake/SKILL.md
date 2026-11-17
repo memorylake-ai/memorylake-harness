@@ -91,5 +91,10 @@ the next message:
   `sync_conversations` > global `sync_on_write`. Recall keeps working when
   sync is off; the switch only governs uploads.
 
+Attached files are a separate, stricter switch: `sync_attachments: true` in
+either file uploads the documents and images the user attaches to a message
+(off unless explicitly `true`; never on where conversation sync is off). The
+upload happens by itself after the turn -- do not upload attachments by hand.
+
 The search-first reminder and the gate have their own switches in the same
 file: `recall_reminder: false` and `recall_gate: false`.
