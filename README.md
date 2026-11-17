@@ -19,6 +19,7 @@ to the international endpoint.)
 | [`qwenpaw-plugin/`](qwenpaw-plugin/) | QwenPaw | working — memory backend plugin: automatic recall, memory tools, Console form, `/memorylake-status`; installs from a zip |
 | [`qwenwork-plugin/`](qwenwork-plugin/) | QwenWork | working — search-first reminder every turn, per-turn conversation sync, session status; the QwenWork agent installs it from this repo |
 | [`workbuddy-plugin/`](workbuddy-plugin/) | WorkBuddy | working — search-first recall every turn (reminder + gate), per-turn conversation sync, session status; installs from this repo as a plugin marketplace |
+| [`workbuddy-connector/`](workbuddy-connector/) | WorkBuddy | built, awaiting listing — CLI + Skill connector for WorkBuddy's connector market: sign-in page, CLI install and upgrade, skills for recall, memory and access; recall is up to the agent |
 
 <p align="center">
   <img src=".github/assets/readme-agents.png" alt="All your agents flow into one MemoryLake: Claude Code, Codex, DeepSeek Harness, opencode, QwenPaw, QwenWork and WorkBuddy around a single MemoryLake" width="100%">
@@ -110,6 +111,18 @@ In WorkBuddy: Skills → Plugins → **+** (add marketplace) →
 
 Machines already set up for another harness can skip the last step. See
 [`workbuddy-plugin/README.md`](workbuddy-plugin/README.md).
+
+WorkBuddy also gets a **connector** for its connector market:
+[`workbuddy-connector/`](workbuddy-connector/), awaiting listing. Connecting
+it installs the CLI, opens a page to sign in to MemoryLake, and adds skills
+for recall, memory and access control. Unlike the plugin it has no hooks, so
+nothing is searched or synced automatically: the agent runs the CLI when the
+skills tell it to. The two work together. The plugin does the automatic
+recall and sync, the connector provides the sign-in from WorkBuddy's
+connector list and explicit management of workspaces, files and access, and
+its recall skill steps aside when the plugin is installed. Both use the same
+CLI login on a machine. See
+[`workbuddy-connector/README.md`](workbuddy-connector/README.md).
 
 ## From the terminal
 
