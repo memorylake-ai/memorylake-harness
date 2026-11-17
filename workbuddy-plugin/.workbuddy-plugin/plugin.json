@@ -1,7 +1,7 @@
 {
   "name": "memorylake",
   "displayName": "MemoryLake",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Cross-device long-term memory for WorkBuddy, backed by MemoryLake: search-first recall every turn per-turn conversation sync, and opt-in sync of attached files",
   "author": {
     "name": "MemoryLake"

@@ -169,8 +169,8 @@ resolve_target() {
   # $1 = the directory the turn worked in. Returns non-zero with $failed set.
   [ -n "$project_id" ] && [ -n "$folder_id" ] && return 0
   local where="$1" custom_id display_name proj_dir folder_name
-  custom_id="${ML_PROJECT_CUSTOM_ID:-$(ml_project_identity "$where")}"
-  display_name=$(ml_project_display "$where")
+  custom_id=$(ml_wb_project_identity "$where")
+  display_name=$(ml_wb_project_display "$where")
   proj_dir="$ws_dir/$(ml_cid_slug "$custom_id")"
   att_dir="$proj_dir/attachments"
   mkdir -p "$att_dir" 2>/dev/null

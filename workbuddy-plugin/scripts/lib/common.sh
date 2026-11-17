@@ -518,6 +518,76 @@ ml_wb_is_search_command() {
   return 1
 }
 
+# ---------- WorkBuddy project identity -------------------------------------------
+#
+# ml_project_identity answers "which project" for a folder someone chose to
+# work in. WorkBuddy adds a case it was never meant for: a chat started
+# without picking a folder runs in a scratch directory WorkBuddy makes up on
+# the spot, named after the clock --
+#
+#   ~/WorkBuddy/2026-11-13-18-10-18             a new chat
+#   ~/WorkBuddy/automation-2026-11-13-18-10-18  an automation run
+#
+# (WorkBuddy 5.3.14; the parent folder is configurable, the name pattern is
+# not). By the path rule every such chat became its own project: a user
+# three months in had hundreds of projects named after timestamps, the same
+# PDF attached in two chats was uploaded and indexed twice, and nothing
+# set per project could ever apply to "my WorkBuddy chats". Nobody thinks of
+# a chat as a project -- the conversation already is the per-chat record.
+#
+# So scratch directories all map to ONE project, the same on every machine:
+# custom id `workbuddy`, shown as "WorkBuddy". A folder the user opened on
+# purpose keeps the shared rule (git remote, else path) and so still meets
+# Claude Code and Codex in the same project.
+
+ML_WB_SCRATCH_PROJECT_ID="workbuddy"
+ML_WB_SCRATCH_PROJECT_NAME="WorkBuddy"
+
+# True when `dir` is, or lies inside, one of WorkBuddy's made-up per-chat
+# directories.
+#
+# By name, not by parent: the parent is `~/WorkBuddy` by default but an
+# enterprise build renames it. Ancestors count, because the model may have
+# moved into a subfolder it created there. A directory that has since gained
+# a git remote is a real repository someone is building in, not scratch.
+ml_wb_scratch_dir() {
+  local root d base
+  root=$(ml_repo_root "$1")
+  [ -z "$(git -C "$root" remote 2>/dev/null | head -n 1)" ] || return 1
+  d="$root"
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    base="${d##*/}"
+    base="${base#automation-}"
+    case "$base" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9]) return 0 ;;
+    esac
+    d=$(ml_parent_dir "$d")
+  done
+  return 1
+}
+
+# The project (custom id) a WorkBuddy session in `dir` belongs to. An
+# explicit project_custom_id still wins over everything.
+ml_wb_project_identity() {
+  if [ -n "${ML_PROJECT_CUSTOM_ID:-}" ]; then
+    ml_cid_slug "$ML_PROJECT_CUSTOM_ID"
+  elif ml_wb_scratch_dir "$1"; then
+    printf '%s' "$ML_WB_SCRATCH_PROJECT_ID"
+  else
+    ml_project_identity "$1"
+  fi
+}
+
+# The name people see for that project: "WorkBuddy" for scratch chats, the
+# folder's own name otherwise.
+ml_wb_project_display() {
+  if ml_wb_scratch_dir "$1"; then
+    printf '%s' "$ML_WB_SCRATCH_PROJECT_NAME"
+  else
+    ml_project_display "$1"
+  fi
+}
+
 # ---------- WorkBuddy sync policy ------------------------------------------------
 
 # True when this folder's conversation may be uploaded.
