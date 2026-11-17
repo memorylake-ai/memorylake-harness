@@ -161,7 +161,8 @@ change takes effect on the next message):
 - `sync_conversations` — after every turn, the user's message and your final
   reply (text only; never tool calls or tool output) are appended to a
   MemoryLake conversation, one per WorkBuddy session, filed under the
-  project of the directory the session works in. When absent it follows
+  project of the folder the session works in (chats started without a folder
+  share one project named WorkBuddy). When absent it follows
   `sync_on_write`.
 - `sync_attachments` — NOT written by default. Only when the user asks for
   it: documents and images attached to a message (not source files, and

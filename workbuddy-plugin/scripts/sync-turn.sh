@@ -21,11 +21,14 @@
 # non-zero exit would push the error into the conversation and make the model
 # keep talking.
 #
-# Project: the conversation is filed under the project of the directory the
+# Project: the conversation is filed under the project of the folder the
 # session works in, by the same identity rule as the Claude Code and Codex
-# harnesses (ml_project_identity: git remote, else physical path), so every
-# client meets in one project per repository or folder. Recall is unaffected
-# by this choice: ml-recall searches every project in the workspace.
+# harnesses (git remote, else physical path), so every client meets in one
+# project per repository or folder. A chat started without a folder runs in
+# a scratch directory WorkBuddy names after the clock; all of those share
+# the single "WorkBuddy" project instead of each becoming its own (see
+# ml_wb_project_identity). Recall is unaffected by this choice: ml-recall
+# searches every project in the workspace.
 
 set -uo pipefail
 
@@ -134,8 +137,8 @@ if [ -z "$conversation_id" ]; then
   # The project the conversation lives in (see header).
   first_cwd=$(cat "$draining" "$outbox" 2>/dev/null | head -n 1 | jq -r '.cwd // empty' 2>/dev/null)
   where="${first_cwd:-${cwd:-$PWD}}"
-  custom_id="${ML_PROJECT_CUSTOM_ID:-$(ml_project_identity "$where")}"
-  display_name=$(ml_project_display "$where")
+  custom_id=$(ml_wb_project_identity "$where")
+  display_name=$(ml_wb_project_display "$where")
   proj_dir="$ws_dir/$(ml_cid_slug "$custom_id")"
   mkdir -p "$proj_dir" 2>/dev/null
   project_id=""

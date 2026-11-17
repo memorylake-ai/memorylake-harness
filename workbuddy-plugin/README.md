@@ -66,11 +66,24 @@ tool output, and thinking never leave the machine, and neither do attachments
 unless `sync_attachments` is turned on (next section). Each message
 carries a custom id derived from its turn, so retries never duplicate.
 
-The conversation is filed under the project of the directory the session
-works in -- the same identity rule as the other harnesses (normalized git
-remote, else the physical path), so all clients meet in one project per
-repository or folder. Recall is not affected: `ml-recall` searches every
-project in the workspace.
+### Which project things land in
+
+- **A chat started without choosing a folder** goes to one shared project
+  named **WorkBuddy** (custom id `workbuddy`), the same on every machine.
+  WorkBuddy runs such a chat in a scratch directory it names after the clock
+  (`~/WorkBuddy/2026-11-13-18-10-18`); treating each of those as a project
+  would leave a pile of projects named after timestamps and upload the same
+  attachment once per chat.
+- **A chat in a folder or repository the user opened** goes to that folder's
+  project, by the same identity rule as the other harnesses (normalized git
+  remote, else the physical path) -- so WorkBuddy, Claude Code, and Codex
+  meet in one project per repository.
+- `project_custom_id` in the config overrides both.
+
+Each chat stays a separate conversation inside its project. Recall is not
+affected by any of this: `ml-recall` searches every project in the
+workspace. Projects that versions before 0.2.1 created per chat are left as
+they are and stay searchable.
 
 A failed sync keeps its messages queued under
 `~/.memorylake/harness/state/workbuddy/<session>/` and retries after the next
