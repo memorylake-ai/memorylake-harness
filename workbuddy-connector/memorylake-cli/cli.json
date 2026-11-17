@@ -1,0 +1,43 @@
+{
+  "runtime": {
+    "type": "node",
+    "version": ">=18"
+  },
+  "env": {
+    "MEMORYLAKE_CONNECTOR_HOME": "$HOME/.workbuddy/connectors-marketplace/connectors/memorylake-cli",
+    "MEMORYLAKE_NO_SETUP": "1",
+    "MEMORYLAKE_NO_SKILLS": "1"
+  },
+  "init": {
+    "darwin": "s=$(curl -fsSL https://raw.githubusercontent.com/memorylake-ai/memorylake-cli/main/scripts/install.sh) && printf '%s\\n' \"$s\" | MEMORYLAKE_INSTALL_DIR=\"$npm_config_prefix/bin\" sh",
+    "linux": "s=$(curl -fsSL https://raw.githubusercontent.com/memorylake-ai/memorylake-cli/main/scripts/install.sh) && printf '%s\\n' \"$s\" | MEMORYLAKE_INSTALL_DIR=\"$npm_config_prefix/bin\" sh",
+    "win32": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:MEMORYLAKE_INSTALL_DIR = $env:npm_config_prefix; irm https://raw.githubusercontent.com/memorylake-ai/memorylake-cli/main/scripts/install.ps1 | iex\""
+  },
+  "versionCheck": {
+    "command": {
+      "darwin": "memorylake version",
+      "linux": "memorylake version",
+      "win32": "memorylake version"
+    },
+    "minVersion": "20261117",
+    "versionPattern": "v(\\d{8})"
+  },
+  "auth": {
+    "darwin": "memorylake version >/dev/null && node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\"",
+    "linux": "memorylake version >/dev/null && node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\"",
+    "win32": "memorylake version >nul && node \"%MEMORYLAKE_CONNECTOR_HOME%\\skills\\memorylake-cli\\scripts\\login.mjs\""
+  },
+  "authUrlDomain": "127.0.0.1",
+  "authWaitForExit": true,
+  "unAuth": {
+    "darwin": "memorylake auth logout || true",
+    "linux": "memorylake auth logout || true",
+    "win32": "memorylake auth logout & exit /b 0"
+  },
+  "status": {
+    "darwin": "memorylake auth status",
+    "linux": "memorylake auth status",
+    "win32": "memorylake auth status"
+  },
+  "statusMatch": "Logged in: yes"
+}

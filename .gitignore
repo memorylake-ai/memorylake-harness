@@ -3,3 +3,6 @@
 .DS_Store
 PLAN.md
 **/PLAN.md
+
+# Connector package built for submission
+workbuddy-connector/*.zip
