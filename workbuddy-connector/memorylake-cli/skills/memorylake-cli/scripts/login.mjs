@@ -19,8 +19,11 @@
 // only thing that reads or writes its credentials.
 // Exit status: 0 once logged in, 1 otherwise.
 //
-// `login.mjs --disconnect` serves no page: it removes the automatic-memory
-// plugin, for the connector's disconnect command.
+// A MemoryLake login already on the computer (the CLI keeps one, shared by
+// every MemoryLake tool there) is offered first, to keep or to replace.
+//
+// `login.mjs --status` and `login.mjs --disconnect` serve no page: they are
+// the connector's status and disconnect commands (see the end of the file).
 //
 // No dependencies, Node 18+.
 
@@ -28,7 +31,7 @@ import { execFile, spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
-import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,13 +90,30 @@ function failureText(result, secret) {
 /** Whether a failed login was the server refusing the key, not a network fault. */
 const keyRefused = (result) => /UNAUTHORIZE|\b401\b/.test(result.stderr + result.stdout);
 
-// `--disconnect`: no page, only the clean-up further down.
+// `--disconnect` and `--status` serve no page; see further down.
 const DISCONNECT = process.argv.includes("--disconnect");
+const STATUS = process.argv.includes("--status");
+const PAGE = !DISCONNECT && !STATUS;
 
 // Browser login arrived in the CLI after v20261102; older ones only take a key.
-const browserLoginSupported = !DISCONNECT && await cli(["auth", "login", "--help"]).then(
+const browserLoginSupported = PAGE && await cli(["auth", "login", "--help"]).then(
   (result) => result.code === 0 && result.stdout.includes("--no-browser"),
 );
+
+/**
+ * A MemoryLake login already on this computer that still works, made by the
+ * CLI for anything (another MemoryLake tool, the terminal, an earlier
+ * connect), so the page can offer to keep it. Asked once, at start.
+ */
+const existingLogin = PAGE ? cli(["auth", "status"]).then(async (result) => {
+  const text = result.stdout;
+  if (result.code !== 0 || !/^Logged in: yes/m.test(text) || !/^Credentials: valid/m.test(text)) return null;
+  const field = (name) => text.match(new RegExp(`^${name}:[ \\t]*(.*)$`, "m"))?.[1].trim() || "";
+  let host = field("Base URL");
+  try { host = new URL(host).host; } catch {}
+  const me = await cli(["actor", "me"]).then((r) => { try { return JSON.parse(r.stdout); } catch { return {}; } });
+  return { account: me.display_name || me.name || me.email || field("API key"), host };
+}) : null;
 
 /** What the key is called in the MemoryLake console, so the user can tell it apart. */
 function keyName() {
@@ -224,7 +244,7 @@ function startBrowserLogin(target) {
       if (code === 0) {
         loggedIn = true;
         current.state = "done";
-        current.result = afterLogin();
+        current.result = markConnected(true).catch(() => {}).then(afterLogin);
         // A page that went off to MemoryLake in its own tab is not coming
         // back to ask; do not keep WorkBuddy waiting on it.
         setTimeout(() => {
@@ -602,17 +622,48 @@ async function writeHarnessConfig(workspace) {
   return workspace;
 }
 
-// Where the hooks look for the CLI when it is not on their PATH, which in
-// WorkBuddy 5.11.3 does not include the directory connectors install into.
-const CLI_LINK = join(dirname(HARNESS_HOME), "bin", process.platform === "win32" ? "memorylake.exe" : "memorylake");
+// Where the MemoryLake installer puts the CLI. The other MemoryLake tools on
+// the computer look there, and so do the hooks when it is not on their PATH.
+const CLI_HOME = join(dirname(HARNESS_HOME), "bin", process.platform === "win32" ? "memorylake.exe" : "memorylake");
 
-/** Point that place at the CLI this page is using, unless something is there already. */
-async function linkCli() {
+/** A CLI's release as a number to compare (v20261117 -> 20261117), or 0 when it cannot tell. */
+async function cliRelease(path) {
+  return Number((await run(path, ["version"])).stdout.match(/v(\d{8})/)?.[1] || 0);
+}
+
+/**
+ * Leave the CLI this connector uses (WorkBuddy keeps it in a directory of its
+ * own) at CLI_HOME too, so everything on the computer runs one release:
+ * copied there when nothing is, and replacing an older release. A newer
+ * release, or a CLI whose release cannot be read (a build of one's own), is
+ * left alone. A copy, not a link, so it outlives the connector.
+ */
+async function updateCli() {
   const found = await run(process.platform === "win32" ? "where" : "which", [CLI]);
-  const path = found.code === 0 ? found.stdout.split(/\r?\n/)[0].trim() : "";
-  if (!path || (await lstat(CLI_LINK).catch(() => null))) return;
-  await mkdir(dirname(CLI_LINK), { recursive: true });
-  await symlink(path, CLI_LINK).catch(() => {});
+  const source = found.code === 0 ? found.stdout.split(/\r?\n/)[0].trim() : "";
+  if (!source || source === CLI_HOME) return;
+  const release = await cliRelease(source);
+  if (!release) return;
+  if (await lstat(CLI_HOME).catch(() => null)) {
+    const present = await cliRelease(CLI_HOME);
+    if (!present || present >= release) return;
+  }
+  await mkdir(dirname(CLI_HOME), { recursive: true });
+  const temp = `${CLI_HOME}.${process.pid}.new`;
+  await cp(source, temp);
+  await chmod(temp, 0o755);
+  await rename(temp, CLI_HOME);
+}
+
+// This connector's own record that it was connected in WorkBuddy, and
+// whether the login it uses is one it made.
+const CONNECTED = join(HARNESS_HOME, "workbuddy-connector.json");
+
+async function markConnected(ownLogin) {
+  loggedIn = true;
+  await mkdir(HARNESS_HOME, { recursive: true });
+  await writeFile(CONNECTED, JSON.stringify({ connectedAt: new Date().toISOString(), ownLogin }, null, 2) + "\n");
+  await updateCli().catch(() => {});
 }
 
 async function installAutoMemory() {
@@ -637,7 +688,6 @@ async function installAutoMemory() {
     if (result.code !== 0) throw new Error(failureText(result));
   }
   if (!(await autoMemoryInstalled())) throw new Error("WorkBuddy did not record the plugin as installed");
-  await linkCli();
 }
 
 /** Take the hooks out again. The shared configuration stays: other harnesses read it. */
@@ -646,8 +696,9 @@ async function removeAutoMemory() {
   if (codebuddy && (await autoMemoryInstalled())) await workbuddyPlugin(codebuddy, ["uninstall", AUTO_PLUGIN]);
   if (codebuddy && existsSync(AUTO_COPY)) await workbuddyPlugin(codebuddy, ["marketplace", "remove", AUTO_MARKETPLACE]);
   await rm(AUTO_COPY, { recursive: true, force: true });
-  // Only the link made above; a CLI someone installed there is theirs.
-  if ((await lstat(CLI_LINK).catch(() => null))?.isSymbolicLink()) await unlink(CLI_LINK).catch(() => {});
+  // Earlier versions linked the CLI there; a link into the connector would
+  // dangle once it is gone. A copy is a CLI like any other, and stays.
+  if ((await lstat(CLI_HOME).catch(() => null))?.isSymbolicLink()) await unlink(CLI_HOME).catch(() => {});
 }
 
 async function enableAutoMemory() {
@@ -664,9 +715,30 @@ async function enableAutoMemory() {
   }
 }
 
+// WorkBuddy calls the connector connected when its status command prints
+// "Logged in: yes", and then skips the sign-in page. A MemoryLake login made
+// by something else on this computer must not count until the user has
+// connected here once, or they would never get to choose a workspace, import
+// their memory or turn on automatic memory.
+if (STATUS) {
+  if (!(await readJsonFile(CONNECTED))) {
+    console.log("Logged in: no (MemoryLake has not been connected in WorkBuddy yet)");
+    process.exit(0);
+  }
+  const result = await cli(["auth", "status"]);
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exit(result.code < 0 ? 127 : result.code);
+}
+
+// Disconnecting removes what the connector added. The login goes too only if
+// the connector made it: one that was here before belongs to the other
+// MemoryLake tools on this computer.
 if (DISCONNECT) {
-  // Whatever happens here, the connector's disconnect goes on to log out.
   await removeAutoMemory().catch(() => {});
+  const record = await readJsonFile(CONNECTED);
+  await rm(CONNECTED, { force: true }).catch(() => {});
+  if (record?.ownLogin) await cli(["auth", "logout"]);
   process.exit(0);
 }
 
@@ -681,7 +753,19 @@ const handlers = {
     // processes for the moment the command runs.
     const result = await cli(["auth", "login", "--api-key", key, "--base-url", target.baseUrl]);
     if (result.code !== 0) return { ok: false, refused: keyRefused(result), error: failureText(result, key) };
-    loggedIn = true;
+    await markConnected(true);
+    return { ok: true, ...(await afterLogin()) };
+  },
+
+  async existing() {
+    return { ok: true, existing: await existingLogin };
+  },
+
+  /** Keep the login already on this computer. */
+  async useExisting() {
+    if (!(await existingLogin)) return { ok: false, error: "there is no MemoryLake login on this computer to keep" };
+    stopBrowserLogin();
+    await markConnected(false);
     return { ok: true, ...(await afterLogin()) };
   },
 
@@ -916,8 +1000,15 @@ ${LOGO}
 <main>
   <section id="step-login">
     <h1 data-t="title"></h1>
-    <p class="sub" data-t="intro"></p>
-    <form id="login-form" autocomplete="off">
+    <p class="sub" id="intro" data-t="intro"></p>
+    <div class="spinner" id="login-check" aria-hidden="true"></div>
+    <div id="existing-part" hidden>
+      <dl class="summary" id="existing-summary"></dl>
+      <p class="error" id="existing-error" role="alert" hidden></p>
+      <button type="button" class="btn" id="existing-button" data-t="keepAccount"></button>
+      <button type="button" class="link" id="other-account" data-t="otherAccount"></button>
+    </div>
+    <form id="login-form" autocomplete="off" hidden>
       <div id="browser-part" hidden>
         <p class="error" id="browser-error" role="alert" hidden></p>
         <button type="button" class="btn" id="browser-button" data-t="browser"></button>
@@ -932,6 +1023,7 @@ ${LOGO}
         <p class="note"><a id="console-link" target="_blank" rel="noopener noreferrer" data-t="openConsole"></a></p>
         <button type="button" class="link" id="show-browser" data-t="useBrowser"></button>
       </div>
+      <p class="note" id="switch-note" data-t="switchNote" hidden></p>
     </form>
   </section>
 
@@ -994,6 +1086,10 @@ const TEXT = {
   en: {
     title: "Connect MemoryLake", intro: "Sign in so WorkBuddy can use your memory.",
     browser: "Sign in with browser", starting: "Opening MemoryLake...", useKey: "Use an API key instead",
+    introExisting: "This computer is already signed in to MemoryLake.",
+    keepAccount: "Continue with this account", otherAccount: "Sign in with another account",
+    switchNote: "Other MemoryLake tools on this computer will switch to the new account too.",
+    rowAccount: "Account", rowServer: "Server",
     apiKey: "Paste your API key", useBrowser: "Sign in with browser instead", openConsole: "Get an API key", connect: "Connect", connecting: "Checking...",
     waitTitle: "Continue in your browser", waitIntro: "Approve in the MemoryLake tab. This page continues by itself.",
     reopen: "Open it again", cancel: "Cancel",
@@ -1020,6 +1116,10 @@ const TEXT = {
   zh: {
     title: "连接 MemoryLake", intro: "登录后，WorkBuddy 即可使用你的记忆。",
     browser: "使用浏览器登录", starting: "正在打开 MemoryLake……", useKey: "改用 API key",
+    introExisting: "这台电脑已登录 MemoryLake。",
+    keepAccount: "继续使用此账号", otherAccount: "使用其他账号登录",
+    switchNote: "这台电脑上其他用到 MemoryLake 的工具也会改用新账号。",
+    rowAccount: "账号", rowServer: "服务器",
     apiKey: "粘贴 API key", useBrowser: "改用浏览器登录", openConsole: "获取 API key", connect: "连接", connecting: "正在校验……",
     waitTitle: "在浏览器中继续", waitIntro: "在 MemoryLake 页面确认授权，本页会自动继续。",
     reopen: "重新打开", cancel: "取消",
@@ -1097,15 +1197,33 @@ showKeyForm(!BROWSER_LOGIN);
 $("show-key").addEventListener("click", () => { showKeyForm(true); $("api-key").focus(); });
 $("show-browser").addEventListener("click", () => showKeyForm(false));
 
+// A login already on this computer (another MemoryLake tool's, or an earlier
+// connect's): keep it with one click, or sign in with another account.
+call("existing").then((result) => {
+  $("login-check").hidden = true;
+  const existing = result.ok && result.existing;
+  if (!existing) { $("login-form").hidden = false; return; }
+  $("intro").textContent = t.introExisting;
+  row(t.rowAccount, existing.account, $("existing-summary"));
+  row(t.rowServer, existing.host, $("existing-summary"));
+  $("existing-part").hidden = false;
+});
+$("other-account").addEventListener("click", () => {
+  $("existing-part").hidden = true;
+  $("intro").textContent = t.intro;
+  $("login-form").hidden = false;
+  $("switch-note").hidden = false;
+});
+
 let workspaceInUse = null;
 let imported = null;
-function row(term, value) {
+function row(term, value, list = $("summary")) {
   const div = document.createElement("div");
   const dt = document.createElement("dt");
   const dd = document.createElement("dd");
   dt.textContent = term; dd.textContent = value;
   div.append(dt, dd);
-  $("summary").append(div);
+  list.append(div);
 }
 async function finish(auto) {
   if (workspaceInUse) row(t.rowWorkspace, workspaceInUse.name);
@@ -1182,6 +1300,15 @@ $("login-form").addEventListener("submit", async (event) => {
   busy(button);
   if (!result.ok) return fail("login-error", result.refused ? t.refused : result.error);
   $("api-key").value = "";
+  loggedIn(result);
+});
+
+$("existing-button").addEventListener("click", async () => {
+  const button = $("existing-button");
+  busy(button, t.connecting); fail("existing-error", "");
+  const result = await call("useExisting");
+  busy(button);
+  if (!result.ok) return fail("existing-error", result.error);
   loggedIn(result);
 });
 

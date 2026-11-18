@@ -53,7 +53,7 @@ workbuddy-connector/
     └── skills/
         ├── memorylake-cli/          entry skill, adapted for the connector
         │   └── scripts/
-        │       ├── login.mjs        the sign-in page (browser login or an API key, the import, automatic memory)
+        │       ├── login.mjs        the sign-in page (browser login, an API key or the login already there; the import, automatic memory), status and disconnect
         │       └── auto-memory/     generated: the plugin the page installs for automatic memory
         ├── memorylake-cli-recall/   when and how to recall, written for the connector
         ├── memorylake-cli-import/   one-off import of WorkBuddy's own memory files
@@ -116,7 +116,7 @@ again in 5.11.3):
 | Installed? | `which` on the first word of the `auth` command | that word is `memorylake` |
 | Install | runs `init` if not installed | the CLI's own installer, pointed at WorkBuddy's tools directory |
 | Version | runs `versionCheck`; below `minVersion` it runs `init` again | reads the date tag `v20261117` as one number |
-| Logged in? | runs `status`, matches `statusMatch` | `memorylake auth status`, `Logged in: yes` |
+| Logged in? | runs `status`, matches `statusMatch`; a match skips the sign-in page | `login.mjs --status`, `Logged in: yes` |
 | Log in | runs `auth`, opens the first URL it prints that contains `authUrlDomain`, waits for the process to exit | `scripts/login.mjs` |
 | Done? | polls `status` every 3 seconds for up to 5 minutes | |
 
@@ -145,12 +145,23 @@ Why each piece of `cli.json` is the way it is:
   to the real directory, as long as `<source>` matches the package name. It
   also accepts `${WORKBUDDY_CONNECTOR_PACKAGE_DIR}`, which older versions do
   not know, so the spelled-out form is the one that works on both.
-- **`status`** exits 0 whether or not the CLI is logged in, so `statusMatch`
-  decides. A stored key MemoryLake rejects still prints `Logged in: yes`, but
-  `status` then checks it online and exits 1, which WorkBuddy reads as not
-  connected. The check takes about 2 seconds, well inside the 10-second limit.
-- **`unAuth`** ends in `|| true` because `auth logout` fails when already
-  logged out, and WorkBuddy requires it to be idempotent.
+- **`status`** is `login.mjs --status`, not `memorylake auth status`. The
+  CLI keeps one login per computer (`~/.memorylake/credentials.toml`), shared
+  with every other MemoryLake tool there. Were that login enough, a computer
+  already set up for Claude Code or Codex would show the connector as
+  connected without ever opening the sign-in page: no workspace choice, no
+  import, no automatic memory. So `--status` prints `Logged in: no` until
+  the page has recorded a connect in
+  `~/.memorylake/harness/workbuddy-connector.json`, and from then on passes
+  `memorylake auth status` through. That exits 0 whether or not the CLI is
+  logged in, so `statusMatch` decides; a stored key MemoryLake rejects still
+  prints `Logged in: yes`, but the check online then exits 1, which WorkBuddy
+  reads as not connected. It takes about 2 seconds, well inside the
+  10-second limit. WorkBuddy also runs `status` when it starts, and connects
+  whatever matches.
+- **`unAuth`** is `login.mjs --disconnect` (below), which logs out only a
+  login the connector made. It ends in `|| true` because WorkBuddy requires
+  it to succeed every time.
 
 Requires WorkBuddy 4.24.0 (`versionCheck`, localized listing fields).
 
@@ -226,8 +237,21 @@ Details that matter:
   killing it) stops the CLI with it.
 - A key from browser login expires (90 days by default). `auth status` then
   says so, and the entry skill tells the agent to ask for a reconnect.
-- Disconnect runs `auth logout`, which revokes a key created by browser
-  login before forgetting it. A pasted key is only forgotten.
+- A login already on the computer (another MemoryLake tool's, or an earlier
+  connect's) whose key still works is offered first: **Continue with this
+  account**, showing the account and the server, or **Sign in with another
+  account**, which says that the other MemoryLake tools on the computer
+  switch too, since they share the login.
+- Once logged in, the page leaves the CLI it ran at `~/.memorylake/bin`,
+  where the MemoryLake installer puts it and the other MemoryLake tools look:
+  copied there when nothing is, replacing an older release. A newer release,
+  or one whose release it cannot read (a build of one's own), is kept.
+  Inside WorkBuddy the connector always runs its own copy, which WorkBuddy
+  puts first on the `PATH`. A `memorylake` installed some other way (a
+  package manager) is not touched.
+- Disconnect runs `auth logout` only for a login made on this page, which
+  revokes a key created by browser login before forgetting it (a pasted key
+  is only forgotten). A login that was kept stays, for the tools that made it.
 
 What keeps the page private to the person who clicked Connect:
 
@@ -283,10 +307,9 @@ gains any missing WorkBuddy keys, and takes the chosen workspace; its actor
 is kept only when the workspace did not change, so a reconnect to another
 workspace or account never writes to the old one. The other MemoryLake
 harnesses on the computer read the same file, so they follow the choice too.
-Last, it links `~/.memorylake/bin/memorylake` to the CLI the connector
-installed, unless something is already there: that is where the hooks look
-when the CLI is not on their `PATH`, and in WorkBuddy 5.11.3 a hook's `PATH`
-does not include the directory connectors install into.
+In WorkBuddy 5.11.3 a hook's `PATH` does not include the directory
+connectors install into, so `run.sh` puts it first: the hooks run the
+connector's CLI even where an older `memorylake` is on the `PATH`.
 
 **When the step appears.**
 
@@ -302,9 +325,10 @@ connector's hooks see it enabled in WorkBuddy's `settings.json` and exit
 before doing anything (`run.sh`), so a turn is never reminded or synced
 twice.
 
-**Disconnecting** runs `login.mjs --disconnect` before `auth logout`: it
-uninstalls the plugin, removes the marketplace and the CLI link. `config.md`
-stays, since the other MemoryLake harnesses on the computer read it. A
+**Disconnecting** runs `login.mjs --disconnect`: it uninstalls the plugin,
+removes the marketplace, forgets the connect, and logs out if the page made
+the login. `config.md` stays, since the other MemoryLake harnesses on the
+computer read it. A
 conversation that is already open keeps the hooks it started with (WorkBuddy
 holds an uninstalled plugin's files until its sessions end); with the login
 gone they report MemoryLake as unreachable rather than searching.
@@ -339,6 +363,16 @@ disconnects:
 node dev/test-auto-memory.mjs
 ```
 
+A computer that already had the CLI, logged in, has a third: WorkBuddy's
+`status` must still say not connected, the page must offer to keep the login
+or use another account, an older CLI at `~/.memorylake/bin` must be replaced
+and a newer one kept, and disconnecting must log out only a login the page
+made:
+
+```bash
+node dev/test-existing-login.mjs
+```
+
 Replay WorkBuddy's connect flow from a shell, into scratch directories, with
 a stand-in for the MemoryLake API so no real key is involved:
 
@@ -365,22 +399,24 @@ MEMORYLAKE_CONFIG_DIR=/tmp/ml-config MEMORYLAKE_BASE_URL=http://127.0.0.1:18765 
   node memorylake-cli/skills/memorylake-cli/scripts/login.mjs
 ```
 
-Show the connector in the real WorkBuddy app, next to every official one:
+Try the connector in the real WorkBuddy app before it is published, for
+example on a colleague's Mac (it needs python3, and WorkBuddy opened once):
 
 ```bash
-python3 dev/build-test-marketplace.py memorylake-cli /tmp/ml-marketplace/connectors-config.zip
-(cd /tmp/ml-marketplace && python3 -m http.server 18766 --bind 127.0.0.1) &
-echo '{"connectorMarketplaceUrl":"http://127.0.0.1:18766/connectors-config.zip"}' > ~/.workbuddy/connectors/connector-marketplace.json
+workbuddy-connector/dev/try-in-workbuddy.sh          # adds it to the list and restarts WorkBuddy
+workbuddy-connector/dev/try-in-workbuddy.sh --undo   # the official list again
 ```
 
-Restart WorkBuddy to make it read the override. (5.3.14 also re-read it
-every ten minutes; 5.11.3, which takes its catalog from a market API, was
-not seen to fetch it while running.) Delete
-`~/.workbuddy/connectors/connector-marketplace.json` to go back to the
-official index. Extra `KEY=VALUE` arguments to the build script are added to
-`cli.json`'s `env` in the zip only; `MEMORYLAKE_CONFIG_DIR=...` gives the
-connector a login state of its own, which lets a machine that is already
-logged in go through the sign-in page.
+WorkBuddy 5.11.3 takes its connector list from a market API, which lists
+only published connectors. Started with `WORKBUDDY_CONNECTOR_MARKET_API=0`
+it reads the older marketplace index instead, which
+`~/.workbuddy/connectors/connector-marketplace.json` can point elsewhere. The
+script builds an index of the official connectors plus this one
+(`dev/build-test-marketplace.py`), serves it on `127.0.0.1:18766`, writes that
+file and restarts WorkBuddy with the variable set. The variable lasts for
+that launch: WorkBuddy reopened the usual way shows the official list (run
+the script again to come back). Extra `KEY=VALUE` arguments to the build
+script are added to `cli.json`'s `env` in the zip only.
 
 ## Known gaps
 
@@ -426,13 +462,11 @@ logged in go through the sign-in page.
   hand.
 - **The connector format does not mention plugins.** A connector that installs
   one on the user's say-so may or may not pass review.
-- **Browser login through this page has only met the stand-in.** Every
-  path of `login.mjs` (approve, deny, cancel, a re-login revoking the key
-  it replaces, no new tab allowed) was run against `dev/mock-api.mjs`. The
-  CLI's own login (`v20261117`) was run against the China deployment:
-  approved in a browser, key created, a command run with it, and
-  `auth logout` revoking it. The two together, inside WorkBuddy, have not
-  been run.
+- **Browser login through this page** was run inside WorkBuddy 5.11.3
+  against the China deployment once, with a new account. Every other path of
+  `login.mjs` (deny, cancel, a re-login revoking the key it replaces, no new
+  tab allowed, keeping a login already on the computer) was run only against
+  `dev/mock-api.mjs`.
 
 ## Packaging
 
