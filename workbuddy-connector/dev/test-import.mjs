@@ -6,7 +6,7 @@
 //   node dev/test-import.mjs            # uses `memorylake` on PATH
 //   MEMORYLAKE_REAL_BIN=/path/to/memorylake node dev/test-import.mjs
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -54,6 +54,7 @@ try {
     MEMORYLAKE_BASE_URL: "http://127.0.0.1:18765",
     MEMORYLAKE_IMPORT_HOME: home,
     STUB_STATE: statePath,
+    STUB_QUOTA_FILE: join(root, "no-quota"),
   });
   mkdirSync(join(root, "cli-home"), { recursive: true });
   const url = await new Promise((resolve, reject) => {
@@ -84,6 +85,18 @@ try {
   const login = await call("login", { apiKey: "sk-test-mock" });
   assert.equal(login.ok, true, JSON.stringify(login));
   assert.equal(login.workspace?.id, "ws-1", "the only workspace is picked");
+  assert.deepEqual(login.workspaces.map((w) => w.id), ["ws-1"], "and still listed, next to making a new one");
+
+  // A new workspace, made on the page, becomes the default.
+  assert.equal((await call("workspaceCreate", { name: "  " })).ok, false);
+  const created = await call("workspaceCreate", { name: "WorkBuddy" });
+  assert.equal(created.ok, true, JSON.stringify(created));
+  assert.equal(created.workspace.name, "WorkBuddy");
+  assert.match(created.workspace.id, /^ws-\d+$/);
+  const listed = await fetch("http://127.0.0.1:18765/api/v3/workspaces", { headers: { authorization: "Bearer sk-test-mock" } }).then((r) => r.json());
+  assert.match(listed.data.items.find((w) => w.id === created.workspace.id).custom_id, /^workbuddy-/);
+  const current = await new Promise((resolve) => execFile(process.env.MEMORYLAKE_REAL_BIN || "memorylake", ["workspace", "current"], { env: { ...process.env, HOME: join(root, "cli-home"), USERPROFILE: join(root, "cli-home") } }, (error, stdout, stderr) => resolve(stdout + stderr)));
+  assert.ok(current.includes(created.workspace.id), current);
 
   const scan = await call("importScan");
   const groups = Object.fromEntries(scan.groups.map((group) => [group.id, group]));
@@ -94,6 +107,16 @@ try {
   assert.equal(groups.profile.stored, false);
 
   const suggested = scan.groups.filter((group) => group.suggested).map((group) => group.id);
+
+  // An account with no quota: said as such, after one refused file, and
+  // nothing is left half-stored.
+  writeFileSync(join(root, "no-quota"), "");
+  const refused = await call("importRun", { ids: suggested });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.quota, true, JSON.stringify(refused));
+  assert.equal(refused.failed.length, 1, "it stops at the first refusal");
+  assert.equal(JSON.parse(readFileSync(statePath, "utf8")).documents.length, 0);
+  rmSync(join(root, "no-quota"));
   const first = await call("importRun", { ids: suggested });
   assert.deepEqual({ ok: first.ok, imported: first.imported, failed: first.failed }, { ok: true, imported: 3, failed: [] });
 
@@ -128,7 +151,7 @@ try {
   await call("finish");
   const code = await new Promise((resolve) => page.on("exit", resolve));
   assert.equal(code, 0, "the page exits 0 once logged in");
-  console.log("ok: sign-in, scan, import, repeat import");
+  console.log("ok: sign-in, new workspace, scan, out of quota, import, repeat import");
 } finally {
   cleanup();
 }

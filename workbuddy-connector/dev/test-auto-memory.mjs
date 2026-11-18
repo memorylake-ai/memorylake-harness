@@ -77,11 +77,12 @@ try {
     });
     page.on("exit", (code) => reject(new Error(`page exited early with ${code}`)));
   });
-  const call = async (action) => (await fetch(new URL(`/api/${action}`, url), {
+  const call = async (action, body = action === "login" ? { apiKey: "sk-test-mock" } : {}) => (await fetch(new URL(`/api/${action}`, url), {
     method: "POST",
     headers: { "content-type": "application/json", "x-login-token": url.searchParams.get("t") },
-    body: action === "login" ? JSON.stringify({ apiKey: "sk-test-mock" }) : "{}",
+    body: JSON.stringify(body),
   })).json();
+  const realCli = (...args) => spawnSync(env.MEMORYLAKE_REAL_BIN, args, { env, encoding: "utf8" });
 
   const html = await (await fetch(url)).text();
   new Function(html.match(/<script>([\s\S]*)<\/script>/)[1]);
@@ -133,6 +134,29 @@ try {
   assert.equal((await call("autoEnable")).ok, true);
   assert.equal(readFileSync(config, "utf8"), written);
 
+  // Another workspace chosen on a later connect: automatic memory follows it,
+  // with the actor bound there, and a setting the user changed stays.
+  writeFileSync(config, written.replace("recall_gate: true", "recall_gate: false"));
+  const created = await call("workspaceCreate", { name: "Second" });
+  assert.equal(created.ok, true, JSON.stringify(created));
+  const moved = await call("autoEnable");
+  assert.equal(moved.workspace, created.workspace.id);
+  const rewritten = readFileSync(config, "utf8");
+  assert.match(rewritten, new RegExp(`^workspace: ${created.workspace.id}$`, "m"));
+  assert.match(rewritten, /^actor: actor-me$/m);
+  assert.match(rewritten, /^recall_gate: false$/m);
+  assert.ok(readJson(env.STUB_STATE).bindings.includes(`${created.workspace.id}/actor-me`));
+
+  // The next sign-in offers the workspace already in use: the CLI's default,
+  // or after a logout the one automatic memory writes to.
+  assert.equal((await call("login")).current, created.workspace.id);
+  realCli("workspace", "use", "ws-1");
+  assert.equal((await call("login")).current, "ws-1", "the CLI's default comes first");
+  realCli("auth", "logout");
+  const relogin = await call("login");
+  assert.equal(relogin.current, created.workspace.id, JSON.stringify(relogin));
+  await call("workspace", { id: created.workspace.id });
+
   await call("finish");
   assert.equal(await new Promise((resolve) => page.on("exit", resolve)), 0);
 
@@ -143,7 +167,7 @@ try {
   assert.ok(!existsSync(join(home, ".memorylake/harness/workbuddy-auto-memory")));
   assert.ok(!lstatSync(link, { throwIfNoEntry: false }), "the link is gone too");
   assert.ok(existsSync(config));
-  console.log("ok: install, hooks, stand-down, reconnect, disconnect");
+  console.log("ok: install, hooks, stand-down, reconnect, workspace change, disconnect");
 } finally {
   for (const child of children) child.kill();
   rmSync(root, { recursive: true, force: true });

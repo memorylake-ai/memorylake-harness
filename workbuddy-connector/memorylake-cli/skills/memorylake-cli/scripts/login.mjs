@@ -7,8 +7,8 @@
 // process to exit (`authWaitForExit`).
 //
 // So this serves a one-off page on the loopback interface. The user signs in
-// to the China deployment (WorkBuddy's users are in China), picks a default
-// workspace, may copy the memory files WorkBuddy keeps on this computer into
+// to the China deployment (WorkBuddy's users are in China), picks or creates a
+// default workspace, may copy the memory files WorkBuddy keeps on this computer into
 // MemoryLake, and may turn on automatic memory (a small WorkBuddy plugin with
 // the hooks a connector cannot carry). Signing in is the
 // CLI's browser login (`auth login --no-browser`): the page opens the
@@ -117,18 +117,35 @@ async function listWorkspaces() {
   return items;
 }
 
-/** After a login: pick the only workspace, or hand the page the list to pick from. */
+/**
+ * The workspace this computer already uses, if the signed-in account has it:
+ * the CLI's default, or else the one automatic memory was writing to (a
+ * logout forgets the CLI's default).
+ */
+async function currentWorkspace(workspaces) {
+  const cliDefault = (await cli(["workspace", "current"])).stdout.match(/^(\S+) \(from /m)?.[1];
+  const config = await readFile(join(HARNESS_HOME, "config.md"), "utf8").catch(() => "");
+  const configured = config.match(/^---\r?\n[\s\S]*?^workspace:[ \t]*(\S+)/m)?.[1];
+  return [cliDefault, configured].find((id) => id && workspaces.some((w) => w.id === id)) || null;
+}
+
+/**
+ * After a login: hand the page the workspaces to pick from or add to. The
+ * only one is made the default straight away, so a login that never returns
+ * to the page (no new tab allowed) still leaves the CLI ready to use.
+ */
 async function afterLogin() {
   try {
     const workspaces = await listWorkspaces();
+    const current = await currentWorkspace(workspaces);
     if (workspaces.length === 1) {
       const picked = await cli(["workspace", "use", workspaces[0].id]);
       if (picked.code === 0) {
         workspaceId = workspaces[0].id;
-        return { workspaces: [], workspace: workspaces[0] };
+        return { workspaces, workspace: workspaces[0] };
       }
     }
-    return { workspaces };
+    return { workspaces, current };
   } catch (error) {
     // Logged in is what matters; the workspace can be chosen later.
     return { workspaces: [], warning: String(error.message || error) };
@@ -380,6 +397,9 @@ async function deleteDocument(projectId, documentId) {
   if (result.code !== 0) throw new Error(failureText(result));
 }
 
+// MemoryLake's answer when the team's plan has nothing left to process a file with.
+const OUT_OF_QUOTA = /QUOTA_EXCEEDED/;
+
 /** Upload the chosen groups' files and import them into the project. */
 async function runImport(ids) {
   const files = ids.flatMap((id) => importPlan.get(id)?.files ?? []);
@@ -423,13 +443,16 @@ async function runImport(ids) {
         imported++;
       } catch (error) {
         failed.push({ name: file.name, error: String(error.message || error).slice(0, 200) });
+        // An account out of quota refuses every file alike; do not go on asking.
+        if (OUT_OF_QUOTA.test(failed.at(-1).error)) break;
       }
     }
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
-  if (!imported) return { ok: false, error: failed[0]?.error || "nothing was imported", failed };
-  return { ok: true, imported, failed };
+  const quota = failed.some((file) => OUT_OF_QUOTA.test(file.error));
+  if (!imported) return { ok: false, quota, error: failed[0]?.error || "nothing was imported", failed };
+  return { ok: true, quota, imported, failed };
 }
 
 
@@ -549,16 +572,25 @@ async function writeHarnessConfig(workspace) {
   const path = join(HARNESS_HOME, "config.md");
   const text = await readFile(path, "utf8").catch(() => "");
   const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  const value = (key) => front?.[1].match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"))?.[1].trim() || "";
   let next;
-  let used = workspace;
-  if (value("workspace")) {
-    used = value("workspace");
-    const missing = ["sync_conversations", "recall_reminder", "recall_gate"]
-      .filter((key) => !new RegExp(`^${key}:`, "m").test(front[1]))
-      .map((key) => `${key}: true`);
-    if (!missing.length) return used;
-    next = text.replace(front[0], `---\n${front[1]}\n${missing.join("\n")}\n---`);
+  if (front) {
+    // Settings the user changed stay as they are. The workspace is the one
+    // just chosen on this page; the actor is kept only for the same
+    // workspace, since a new workspace or another account needs its own.
+    let body = front[1];
+    const value = (key) => body.match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"))?.[1].trim() || "";
+    const set = (key, to) => {
+      const line = new RegExp(`^${key}:.*$`, "m");
+      body = line.test(body) ? body.replace(line, () => `${key}: ${to}`) : `${body}\n${key}: ${to}`;
+    };
+    const actor = value("workspace") === workspace && value("actor") ? value("actor") : await resolveActor(workspace);
+    set("workspace", workspace);
+    set("actor", actor);
+    for (const key of ["sync_conversations", "recall_reminder", "recall_gate"]) {
+      if (!new RegExp(`^${key}:`, "m").test(body)) set(key, "true");
+    }
+    next = text.replace(front[0], () => `---\n${body}\n---`);
+    if (next === text) return workspace;
   } else {
     const actor = await resolveActor(workspace);
     next = ["---", "enabled: true", `workspace: ${workspace}`, `actor: ${actor}`, "sync_on_write: true",
@@ -567,7 +599,7 @@ async function writeHarnessConfig(workspace) {
   await mkdir(HARNESS_HOME, { recursive: true });
   await writeFile(`${path}.tmp`, next);
   await rename(`${path}.tmp`, path);
-  return used;
+  return workspace;
 }
 
 // Where the hooks look for the CLI when it is not on their PATH, which in
@@ -679,6 +711,25 @@ const handlers = {
     if (result.code !== 0) return { ok: false, error: failureText(result) };
     workspaceId = id;
     return { ok: true };
+  },
+
+  async workspaceCreate({ name }) {
+    const title = typeof name === "string" ? name.trim() : "";
+    if (!title || title.length > 100) return { ok: false, error: "bad workspace name" };
+    // The API wants an id of the caller's own; nothing else refers to it.
+    const customId = `workbuddy-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+    const created = await cli(["workspace", "create", "--name", title, "--custom-id", customId]);
+    if (created.code !== 0) return { ok: false, error: failureText(created) };
+    let id;
+    try {
+      id = JSON.parse(created.stdout).id;
+    } catch {
+      return { ok: false, error: "unexpected output from memorylake workspace create" };
+    }
+    const used = await cli(["workspace", "use", id]);
+    if (used.code !== 0) return { ok: false, error: failureText(used) };
+    workspaceId = id;
+    return { ok: true, workspace: { id, name: title } };
   },
 
   async importScan() {
@@ -804,6 +855,9 @@ server.on("error", (error) => {
   process.exit(1);
 });
 
+// The MemoryLake logo, drawn in the text colour so it follows dark mode.
+const LOGO = '<svg class="logo" xmlns="http://www.w3.org/2000/svg" fill="currentColor" role="img" aria-label="MemoryLake" viewBox="0 0 325.6362 53.5781"><polygon points="115.3472 11.0809 115.3472 42.101 111.1824 42.101 111.2064 18.3847 100.3472 30.6534 89.4879 18.4247 89.4639 42.101 85.3472 42.101 85.3472 11.0809 89.2523 11.0809 100.3135 23.9555 111.4325 11.0809 115.3472 11.0809"/><path d="M139.9541,30.5322c0-1.4395-.2363-2.792-.7021-4.0186-.4668-1.2285-1.1328-2.3184-1.9814-3.2393-.8516-.9209-1.8779-1.6455-3.0518-2.1553-1.1729-.5088-2.4854-.7676-3.8994-.7676-1.5234,0-2.9697.2939-4.2988.873-1.3242.5771-2.498,1.3789-3.4883,2.3818-.9893,1.0039-1.7764,2.1914-2.3398,3.5303-.5645,1.3398-.8516,2.793-.8516,4.3184,0,1.5244.294,2.9775.8731,4.3193.5781,1.3398,1.3867,2.5273,2.4033,3.5303,1.0186,1.0039,2.2197,1.8047,3.5723,2.3818,1.3555.5791,2.8154.873,4.3398.873.7559,0,1.4971-.0576,2.2051-.1699.7109-.1143,1.4277-.3154,2.1309-.5967.7041-.2812,1.4395-.667,2.1865-1.1465.7441-.4775,1.5488-1.1035,2.3906-1.8613l.1104-.0996-2.8467-3.208-.1123.1094c-.9033.877-1.8984,1.5508-2.9561,2.0049-1.8584.7969-3.832.9082-5.5518.249-.75-.2852-1.4268-.6855-2.0127-1.1904-.584-.501-1.0742-1.1084-1.4561-1.8047-.3555-.6484-.5957-1.3701-.7139-2.1484h16.0508v-2.165ZM130.3194,24.6387c1.2725,0,2.3477.3691,3.1963,1.0977.8076.6904,1.3486,1.5889,1.6104,2.6729h-10.4238c.4199-1.0527,1.124-1.9414,2.0957-2.6455,1.0312-.7471,2.2158-1.125,3.5215-1.125Z"/><path d="M197.6885,27.0928c-.5928-1.3408-1.4082-2.5283-2.4238-3.5293s-2.21-1.8086-3.5488-2.4023c-1.3428-.5928-2.7686-.8936-4.2363-.8936-1.4688,0-2.8945.3008-4.2363.8945-1.3408.5928-2.5352,1.4082-3.5508,2.4229-1.0156,1.0166-1.8311,2.2041-2.4219,3.5283-.5938,1.3291-.8955,2.7617-.8955,4.2578,0,1.4697.3018,2.8955.8945,4.2363.5918,1.3398,1.4004,2.5342,2.4023,3.5498,1.001,1.0156,2.1885,1.8311,3.5293,2.4229,1.3408.5938,2.7803.8955,4.2783.8955,1.4971,0,2.9365-.3018,4.2783-.8955,1.3379-.5908,2.5254-1.4062,3.5293-2.4229,1.002-1.0176,1.8105-2.2119,2.4014-3.5498.5938-1.3418.8945-2.7676.8945-4.2363,0-1.4961-.3008-2.9355-.8945-4.2783ZM194.2539,31.3711c0,.8965-.1865,1.7656-.5537,2.583-.3682.8203-.8672,1.5537-1.4814,2.1807-.6113.626-1.3369,1.1309-2.1572,1.5-1.6299.7354-3.5293.7334-5.1865,0-.833-.3691-1.5654-.874-2.1777-1.501-.6133-.624-1.1113-1.3584-1.4814-2.1797-.3672-.8154-.5527-1.6846-.5527-2.583,0-.9268.1855-1.8096.5527-2.624.3682-.8184.8672-1.5527,1.4814-2.1816.6143-.627,1.3467-1.1318,2.1777-1.499.8301-.3672,1.7061-.5537,2.6045-.5537.8975,0,1.7656.1865,2.582.5537.8184.3672,1.5439.8721,2.1572,1.499.6162.6309,1.1143,1.3652,1.4814,2.1816s.5537,1.6992.5537,2.624Z"/><path d="M277.1679,20.7705v3.5947c-.1484-.3594-.3379-.7051-.5664-1.0332-.4268-.6113-.9531-1.1455-1.5664-1.5889-.6123-.4395-1.3105-.7861-2.0781-1.0283-.7676-.2402-1.5879-.3633-2.4375-.3633-1.4717,0-2.876.3018-4.1758.8945-1.2969.5928-2.4482,1.4014-3.4229,2.4033-.9756,1.0039-1.7559,2.1846-2.3174,3.5088-.5654,1.3262-.8525,2.7578-.8525,4.2549s.2939,2.9355.873,4.2773c.5771,1.3389,1.3643,2.5332,2.3379,3.5488.9746,1.0176,2.127,1.833,3.4238,2.4248,1.3008.5938,2.7061.8955,4.1758.8955.8525,0,1.666-.1299,2.4189-.3867.7539-.2559,1.4443-.6084,2.0547-1.0479.6123-.4424,1.1396-.9688,1.5654-1.5674.2285-.3193.4189-.6592.5674-1.0156v3.5557h4.2881v-21.3271h-4.2881ZM277.1679,31.4971c0,.8965-.1787,1.7666-.5332,2.585-.3535.8164-.8311,1.543-1.418,2.1592-.5879.6133-1.2861,1.1104-2.0752,1.4785-.7871.3662-1.6406.5518-2.5381.5518s-1.752-.1855-2.5391-.5518c-.791-.3691-1.4883-.873-2.0732-1.499-.5859-.626-1.0635-1.3594-1.4189-2.1807-.3545-.8164-.5332-1.7002-.5332-2.627,0-.8994.1787-1.7686.5332-2.584.3545-.8193.832-1.5459,1.418-2.1592s1.2842-1.1113,2.0742-1.4795c.7891-.3662,1.6436-.5518,2.5391-.5518s1.749.1855,2.5381.5518c.79.3682,1.4883.8652,2.0752,1.4795.5859.6143,1.0635,1.3467,1.418,2.1787.3535.833.5332,1.7246.5332,2.6484Z"/><path d="M325.6362,30.5322c0-1.4395-.2363-2.792-.7021-4.0186-.4668-1.2285-1.1328-2.3184-1.9814-3.2393-.8516-.9209-1.8779-1.6455-3.0518-2.1553-1.1729-.5088-2.4854-.7676-3.8994-.7676-1.5234,0-2.9697.2939-4.2988.873-1.3242.5771-2.498,1.3789-3.4883,2.3818-.9893,1.0039-1.7764,2.1914-2.3398,3.5303-.5645,1.3398-.8516,2.793-.8516,4.3184,0,1.5244.2939,2.9775.873,4.3193.5781,1.3398,1.3867,2.5273,2.4033,3.5303,1.0186,1.0039,2.2197,1.8047,3.5723,2.3818,1.3555.5791,2.8154.873,4.3398.873.7559,0,1.4971-.0576,2.2051-.1699.7109-.1143,1.4277-.3154,2.1309-.5967.7041-.2812,1.4395-.667,2.1865-1.1465.7441-.4775,1.5488-1.1035,2.3906-1.8613l.1104-.0996-2.8467-3.208-.1123.1094c-.9033.877-1.8984,1.5508-2.9561,2.0049-1.8594.7969-3.8311.9082-5.5518.249-.75-.2852-1.4268-.6855-2.0127-1.1904-.584-.501-1.0742-1.1084-1.4561-1.8047-.3555-.6484-.5957-1.3701-.7139-2.1484h16.0508v-2.165ZM316.0015,24.6387c1.2725,0,2.3477.3691,3.1963,1.0977.8076.6904,1.3486,1.5889,1.6104,2.6729h-10.4238c.4199-1.0527,1.124-1.9414,2.0957-2.6455,1.0312-.7471,2.2158-1.125,3.5215-1.125Z"/><path d="M166.4876,20.8306c-1.3228,0-2.583.2666-3.7456.793-1.0366.4688-2.1826,1.21-3.4106,2.2051-.4897-.8643-1.1719-1.5654-2.0337-2.0859-1.0039-.6045-2.2329-.9121-3.6533-.9121-1.23,0-2.4053.2588-3.4917.7686-.8457.3955-1.7031.9209-2.5571,1.5654v-1.7822h-4.1484v20.6982h4.1484v-15.0576c.8398-.6299,1.6895-1.1562,2.5288-1.5674.8604-.4219,1.7271-.6357,2.5757-.6357.894,0,1.5771.1143,2.0298.3398.439.2207.7671.541,1.001.9775.2231.4268.3735,1.0146.4458,1.75.0752.7734.1138,1.6025.1138,2.4639v11.7295h4.1484v-13.1367c0-.3652-.0117-.7334-.0366-1.1045-.0181-.2734-.0391-.5225-.0635-.7461.853-.6436,1.7163-1.1855,2.5688-1.6133.8774-.4385,1.7646-.6602,2.6357-.6602.8931,0,1.5752.1162,2.0264.3467.4409.2266.7695.5508,1.0044.9883.2231.4268.3735,1.0186.4458,1.7598.0752.7783.1138,1.5977.1138,2.4365v11.7295h4.1484v-13.3145c0-2.4561-.5532-4.4053-1.644-5.7959-1.1138-1.4199-2.8467-2.1396-5.1504-2.1396Z"/><polygon points="304.5262 21.3994 299.1658 21.3994 290.0618 29.9618 290.0618 13.5801 285.9134 13.5801 285.9134 42.0977 290.0618 42.0977 290.0618 35.2246 291.8157 33.5566 299.6394 42.0977 305.1492 42.0977 294.867 31.0029 304.5262 21.3994"/><path d="M213.1419,20.5697c-.4984-.1171-1.0012-.1773-1.4963-.1773-1.2421-.0268-2.3805.3155-3.394,1.0224-.6812.4739-1.2432,1.0715-1.6814,1.7851v-2.3425h-4.5792v21.6627h4.5792v-12.4765c0-1.4952.4226-2.7306,1.2555-3.6705.8385-.9433,1.9623-1.4015,3.4363-1.4015.6155,0,1.3826.1371,2.2801.4092l.2765.0836,1.2532-4.3417-.2654-.0836c-.6378-.2029-1.183-.3557-1.6646-.4694Z"/><path d="M236.5667,44.8247v-24.0542h-4.2881v10.9365c0,.8193-.1309,1.6377-.3906,2.4297-.2598.79-.6328,1.502-1.1094,2.1162-.4756.6104-1.0391,1.1055-1.6777,1.4727-.6299.3623-1.3467.5459-2.1279.5459-.7822,0-1.5059-.1836-2.1514-.5469-.6504-.3662-1.2139-.8613-1.6738-1.4707-.4639-.6133-.8301-1.3252-1.0889-2.1172-.2598-.792-.3916-1.6094-.3916-2.4297v-10.9365h-4.2871v10.9365c0,1.4111.2432,2.7842.7227,4.0811.4795,1.2988,1.1455,2.4648,1.9775,3.4639.834,1.0049,1.8427,1.6301,3.0028,2.2238,1.1631.5957,2.4434.8984,3.8037.8984,1.4297,0,2.6753-.341,3.7046-1.2141.7637-.6465,1.3307-1.3867,1.6872-2.374v4.4994c0,.85-.6891,1.5392-1.5391,1.5392h-10.7856v4.2881h12.3248c2.3683,0,4.2881-1.9199,4.2881-4.2881h-.0001Z"/><polygon points="246.2329 37.7709 246.2329 11.0809 241.943 11.0809 241.943 42.101 254.9129 42.101 259.2429 42.101 259.2429 37.7709 246.2329 37.7709"/><path d="M55.0575,18.4539c.2562,0,.516.0247.7769.076,2.1677.4267,3.5791,2.53,3.1525,4.6979-.3754,1.9069-2.0481,3.2287-3.9207,3.2287-.2562,0-.516-.0247-.7769-.076-2.1677-.4267-3.5791-2.53-3.1525-4.6978.3752-1.9069,2.0481-3.2286,3.9207-3.2288M55.0577,13.9539h-.0004c-4.0479.0002-7.5536,2.8853-8.3358,6.8598-.905,4.5989,2.0999,9.0768,6.6986,9.9821.542.1067,1.0958.1608,1.646.1608,4.0477,0,7.5535-2.8848,8.3359-6.8595.905-4.5992-2.1-9.0771-6.6986-9.9824-.542-.1067-1.0957-.1608-1.6458-.1608h0Z"/><path d="M36.3167,11.0097c1.238.8378,2.3176,1.9098,3.1843,3.1805l6.3955-6.3953,2.2026,4.901c1.2195-.8717,2.6025-1.5158,4.0862-1.8839L47.3262,0l-11.0095,11.0097Z"/><path d="M68.5957,47.3271l-6.7365-14.9893c-1.233.85-2.6307,1.463-4.1212,1.8055l3.9026,8.6838h-9.1228c.2798,1.4681.2839,2.9891-.0046,4.5h16.0825Z"/><path d="M10.8633,42.8271l11.9641-11.9638c-1.2341-.8425-2.3118-1.9159-3.1737-3.1903L0,47.3271h28.9408c-.28-1.468-.2843-2.9891.0045-4.5H10.8633Z"/><path d="M29.5874,16.9497c.2562,0,.516.0247.7769.076,2.1677.4267,3.5791,2.53,3.1525,4.6978-.3752,1.907-2.0481,3.2288-3.9207,3.2288-.2562,0-.516-.0247-.7769-.076-2.1677-.4267-3.5791-2.53-3.1525-4.6978.3752-1.907,2.048-3.2286,3.9207-3.2288M29.5875,12.4497h-.0002c-4.0479.0002-7.5536,2.8852-8.3358,6.8598-.9052,4.5989,2.0999,9.0768,6.6986,9.9821.542.1067,1.0958.1608,1.646.1608,4.048,0,7.5537-2.8849,8.3359-6.8598.9052-4.5989-2.1-9.0768-6.6986-9.9821-.542-.1067-1.0957-.1608-1.6459-.1608h0Z"/><polygon points="52.9154 26.5534 50.0736 23.0651 43.4227 28.4828 34.5389 21.8268 31.8406 25.4284 40.9568 32.2585 39.1214 40.1598 43.5042 41.1774 45.4982 32.5955 52.9154 26.5534"/><path d="M40.7249,41.0755c.2562,0,.516.0247.7769.076,2.1677.4267,3.5792,2.53,3.1525,4.6978-.3752,1.907-2.048,3.2288-3.9205,3.2288-.2562,0-.516-.0247-.7769-.076-2.1677-.4267-3.5792-2.53-3.1525-4.6978.3752-1.907,2.0481-3.2286,3.9205-3.2288M40.7252,36.5755h-.0002c-4.048.0002-7.5537,2.8852-8.3359,6.8598-.4386,2.2276.0167,4.4929,1.282,6.3783,1.2651,1.8854,3.1888,3.1652,5.4166,3.6038.542.1067,1.0958.1608,1.646.1608,4.0479,0,7.5536-2.8849,8.3358-6.8598.4386-2.2276-.0167-4.4929-1.282-6.3783-1.2651-1.8854-3.1888-3.1652-5.4166-3.6038-.542-.1067-1.0956-.1608-1.6456-.1608h0Z"/><path d="M187.4793,42.5206c-1.4961,0-2.936-.3018-4.2793-.8955-1.3413-.5928-2.5269-1.4072-3.5293-2.4229-1.0024-1.0166-1.8101-2.2109-2.4004-3.5488-.5947-1.3447-.8955-2.7686-.8955-4.2373,0-1.4951.3013-2.9277.896-4.2578.5908-1.3252,1.4048-2.5107,2.4209-3.5273,1.0146-1.0146,2.2104-1.8311,3.5513-2.4238,1.3423-.5938,2.7666-.8945,4.2363-.8945,1.4678,0,2.8936.3008,4.2373.8936,1.3364.5928,2.5342,1.4033,3.5488,2.4023,1.0146,1.001,1.8306,2.1885,2.4229,3.5293.5938,1.3428.8945,2.7822.8945,4.2783,0,1.4697-.3008,2.8945-.8945,4.2354-.5908,1.3389-1.3984,2.5322-2.4019,3.5518-1.0015,1.0137-2.1909,1.8311-3.5288,2.4219-1.3442.5947-2.7817.8955-4.2783.8955ZM187.4793,24.5577c-.9038,0-1.7856.1885-2.6206.5615-.8154.3613-1.5444.8623-2.1562,1.4854-.6235.6396-1.1187,1.3701-1.4863,2.1855-.3687.8252-.5532,1.7041-.5532,2.626,0,.8857.1807,1.7441.5376,2.5488.3843.8555.8833,1.5898,1.4971,2.2139.6025.6191,1.3408,1.1299,2.1748,1.5.8438.3672,1.7314.5518,2.6079.5518.8628,0,1.6963-.1699,2.4775-.5049.0342-.0146.0679-.0293.1016-.0449.8257-.3721,1.5552-.8799,2.168-1.5098.6064-.6182,1.1099-1.3594,1.4775-2.1836.3564-.7783.5488-1.6602.5488-2.5713,0-.959-.1997-1.8711-.5938-2.7109-.3267-.7275-.8223-1.459-1.4336-2.0869-.6201-.6348-1.3413-1.1367-2.1533-1.501-.8208-.3711-1.6929-.5596-2.5938-.5596Z"/></svg>';
+
 function page() {
   return `<!doctype html>
 <html lang="en">
@@ -812,108 +866,124 @@ function page() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MemoryLake</title>
 <style>
-  :root { color-scheme: light dark; --bg: #f6f7f9; --card: #fff; --text: #14171c; --muted: #5d6673; --line: #d9dee6; --accent: #1f5eff; --accent-text: #fff; --bad: #b3261e; --ok: #1a7f4b; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #111418; --card: #1a1e24; --text: #eceff3; --muted: #9aa4b2; --line: #2e3540; --accent: #6b93ff; --accent-text: #0b1020; --bad: #ff8a80; --ok: #6fd6a0; } }
+  :root { color-scheme: light dark; --bg: #fff; --card: #f5f5f7; --surface: #fff; --text: #1d1d1f; --muted: #6e6e73; --line: rgba(0,0,0,.1); --accent: #0071e3; --accent-text: #fff; --bad: #d70015; --ok: #34c759; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #000; --card: #1d1d1f; --surface: rgba(255,255,255,.04); --text: #f5f5f7; --muted: #a1a1a6; --line: rgba(255,255,255,.16); --accent: #2997ff; --bad: #ff6961; --ok: #30d158; } }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-  main { width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px; }
-  h1 { font-size: 20px; margin: 0 0 6px; }
-  p { margin: 0 0 16px; color: var(--muted); }
-  fieldset { border: 0; padding: 0; margin: 0 0 18px; }
-  legend, label.field { display: block; font-weight: 600; margin-bottom: 8px; padding: 0; }
-  .choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
-  .choice:has(input:checked) { border-color: var(--accent); }
-  .choice input { margin-top: 4px; accent-color: var(--accent); flex: none; }
-  .choice small { display: block; color: var(--muted); word-break: break-all; }
-  input[type=password] { width: 100%; padding: 10px 12px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 10px; }
-  input[type=password]:focus-visible, button:focus-visible, a:focus-visible, .choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .hint { font-size: 13px; margin: 8px 0 18px; }
-  a { color: var(--accent); }
-  button { width: 100%; padding: 11px 14px; font: inherit; font-weight: 600; color: var(--accent-text); background: var(--accent); border: 0; border-radius: 10px; cursor: pointer; }
-  button.secondary { color: var(--text); background: transparent; border: 1px solid var(--line); }
-  button.link { width: auto; padding: 0; margin-top: 14px; font-weight: 400; color: var(--accent); background: none; text-decoration: underline; }
-  button[disabled] { opacity: .6; cursor: progress; }
-  .error { color: var(--bad); margin: 0 0 14px; overflow-wrap: anywhere; }
-  .done { color: var(--ok); font-weight: 600; }
-  .list { max-height: 260px; overflow: auto; margin-bottom: 10px; }
-  .actions { display: grid; gap: 10px; }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 16px; background: var(--bg); color: var(--text); font: 15px/1.5 Inter, -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+  .logo { display: block; height: 24px; width: auto; margin: 0 auto 28px; }
+  main { width: 100%; max-width: 420px; background: var(--card); border-radius: 18px; padding: 40px 32px 32px; }
+  @media (max-width: 440px) { main { padding: 32px 20px 24px; } }
+  h1 { font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -.015em; text-align: center; margin: 0 0 8px; }
+  .sub { color: var(--muted); text-align: center; margin: 0 0 28px; text-wrap: balance; }
+  .note { color: var(--muted); font-size: 13px; text-align: center; margin: 12px 0 0; text-wrap: balance; }
+  .note:empty { display: none; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .btn { display: flex; align-items: center; justify-content: center; width: 100%; height: 48px; padding: 0 22px; font: inherit; font-size: 17px; color: var(--accent-text); background: var(--accent); border: 0; border-radius: 980px; cursor: pointer; text-decoration: none; }
+  .btn:hover { text-decoration: none; filter: brightness(1.08); }
+  .btn.secondary { color: var(--text); background: var(--surface); border: 1px solid var(--line); }
+  .btn[disabled] { opacity: .55; cursor: progress; filter: none; }
+  .link { display: block; width: fit-content; margin: 16px auto 0; padding: 4px; font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer; }
+  .link:hover { text-decoration: underline; }
+  .stack { display: grid; gap: 12px; }
+  input[type=password], input[type=text] { width: 100%; height: 44px; padding: 0 14px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+  input::placeholder { color: var(--muted); }
+  .list { display: grid; gap: 8px; max-height: 300px; overflow: auto; margin: 0 0 20px; padding: 2px; }
+  .choice { display: flex; gap: 12px; align-items: center; padding: 13px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+  .choice:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .choice input { margin: 0; accent-color: var(--accent); flex: none; }
+  .choice span { min-width: 0; }
+  .choice small { display: block; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .new-name { margin: -2px 0 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type=text]:focus-visible, input[type=password]:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .error { color: var(--bad); font-size: 14px; margin: 0 0 14px; overflow-wrap: anywhere; }
+  .spinner { width: 28px; height: 28px; margin: 4px auto 20px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+  .check { display: block; width: 44px; height: 44px; margin: 0 auto 18px; color: var(--ok); }
+  .summary { margin: 0 0 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+  .summary div { display: flex; justify-content: space-between; gap: 16px; padding: 12px 16px; }
+  .summary div + div { border-top: 1px solid var(--line); }
+  .summary dt { color: var(--muted); flex: none; }
+  .summary dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
+${LOGO}
 <main>
   <section id="step-login">
     <h1 data-t="title"></h1>
-    <p data-t="intro"></p>
+    <p class="sub" data-t="intro"></p>
     <form id="login-form" autocomplete="off">
       <div id="browser-part" hidden>
-        <p class="hint" data-t="browserHint"></p>
         <p class="error" id="browser-error" role="alert" hidden></p>
-        <button type="button" id="browser-button" data-t="browser"></button>
+        <button type="button" class="btn" id="browser-button" data-t="browser"></button>
         <button type="button" class="link" id="show-key" data-t="useKey"></button>
       </div>
       <div id="key-part">
-        <label class="field" for="api-key" data-t="apiKey"></label>
-        <input id="api-key" type="password" name="api-key" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="sk-...">
-        <p class="hint"><span data-t="noKey"></span> <a id="console-link" target="_blank" rel="noopener noreferrer" data-t="openConsole"></a></p>
-        <p class="error" id="login-error" role="alert" hidden></p>
-        <button type="submit" id="login-button" data-t="connect"></button>
+        <div class="stack">
+          <input id="api-key" type="password" name="api-key" spellcheck="false" autocapitalize="off" autocomplete="off">
+          <p class="error" id="login-error" role="alert" hidden></p>
+          <button type="submit" class="btn" id="login-button" data-t="connect"></button>
+        </div>
+        <p class="note"><a id="console-link" target="_blank" rel="noopener noreferrer" data-t="openConsole"></a></p>
+        <button type="button" class="link" id="show-browser" data-t="useBrowser"></button>
       </div>
     </form>
   </section>
 
   <section id="step-wait" hidden>
+    <div class="spinner" aria-hidden="true"></div>
     <h1 data-t="waitTitle"></h1>
-    <p data-t="waitIntro"></p>
+    <p class="sub" data-t="waitIntro"></p>
     <p class="error" id="wait-error" role="alert" hidden></p>
-    <div class="actions">
-      <a id="reopen" target="_blank" rel="noopener noreferrer" data-t="reopen"></a>
-      <button type="button" class="secondary" id="cancel-button" data-t="cancel"></button>
-    </div>
+    <button type="button" class="btn secondary" id="cancel-button" data-t="cancel"></button>
+    <a class="link" id="reopen" target="_blank" rel="noopener noreferrer" data-t="reopen"></a>
   </section>
 
   <section id="step-workspace" hidden>
     <h1 data-t="pickTitle"></h1>
-    <p data-t="pickIntro"></p>
+    <p class="sub" data-t="pickIntro"></p>
     <form id="workspace-form">
       <div class="list" id="workspaces"></div>
       <p class="error" id="workspace-error" role="alert" hidden></p>
-      <button type="submit" id="workspace-button" data-t="useWorkspace"></button>
+      <button type="submit" class="btn" id="workspace-button" data-t="useWorkspace"></button>
     </form>
   </section>
 
   <section id="step-import" hidden>
     <h1 data-t="importTitle"></h1>
-    <p data-t="importIntro"></p>
+    <p class="sub" data-t="importIntro"></p>
     <form id="import-form">
       <div class="list" id="import-groups"></div>
-      <p class="hint" data-t="importNote"></p>
       <p class="error" id="import-error" role="alert" hidden></p>
-      <div class="actions">
-        <button type="submit" id="import-button" data-t="importGo"></button>
-        <button type="button" class="secondary" id="import-skip" data-t="importSkip"></button>
+      <div class="stack">
+        <button type="submit" class="btn" id="import-button" data-t="importGo"></button>
+        <button type="button" class="btn secondary" id="import-skip" data-t="skip"></button>
       </div>
+      <p class="note" id="import-quota" hidden><a id="quota-link" target="_blank" rel="noopener noreferrer" data-t="quotaLink"></a></p>
     </form>
   </section>
 
   <section id="step-auto" hidden>
     <h1 data-t="autoTitle"></h1>
-    <p data-t="autoIntro"></p>
-    <p class="hint" data-t="autoNote"></p>
+    <p class="sub" data-t="autoIntro"></p>
     <p class="error" id="auto-error" role="alert" hidden></p>
-    <div class="actions">
-      <button type="button" id="auto-button" data-t="autoGo"></button>
-      <button type="button" class="secondary" id="auto-skip" data-t="autoSkip"></button>
+    <div class="stack">
+      <button type="button" class="btn" id="auto-button" data-t="autoGo"></button>
+      <button type="button" class="btn secondary" id="auto-skip" data-t="skip"></button>
     </div>
+    <p class="note" data-t="autoNote"></p>
   </section>
 
   <section id="step-done" hidden>
-    <h1 class="done" data-t="doneTitle"></h1>
-    <p id="done-detail"></p>
-    <p id="done-import" hidden></p>
-    <p id="done-auto" hidden></p>
-    <p data-t="doneIntro"></p>
-    <p class="hint" id="done-tip" data-t="doneTip"></p>
+    <svg class="check" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="22" fill="currentColor"/><path d="M13 22.5l6 6 12-13" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <h1 data-t="doneTitle"></h1>
+    <p class="sub" data-t="doneIntro"></p>
+    <dl class="summary" id="summary" hidden></dl>
   </section>
 </main>
 <script>
@@ -922,74 +992,56 @@ const CONSOLE = ${JSON.stringify(TARGET.console)};
 const BROWSER_LOGIN = ${JSON.stringify(browserLoginSupported)};
 const TEXT = {
   en: {
-    title: "Connect MemoryLake", intro: "Sign the memorylake CLI on this computer in to your MemoryLake account. Its key stays on this computer.",
-    browser: "Sign in with browser", starting: "Opening MemoryLake...",
-    browserHint: "Sign in on the MemoryLake site and approve. MemoryLake then creates an API key for this computer, which you can see and revoke in its console.",
-    useKey: "Use an API key instead",
-    apiKey: "API key", noKey: "No key yet?", openConsole: "Create one in the MemoryLake console",
-    connect: "Connect", connecting: "Checking the key...",
-    waitTitle: "Finish signing in", waitIntro: "MemoryLake has opened in a new tab. Sign in there and approve; this page carries on by itself.",
-    reopen: "Open the MemoryLake page again", cancel: "Cancel",
-    pickTitle: "Choose a workspace", pickIntro: "Commands use this workspace unless told otherwise. You can change it later.",
-    useWorkspace: "Use this workspace", saving: "Saving...",
-    doneTitle: "MemoryLake is connected", doneIntro: "You can close this page and go back to WorkBuddy.",
-    doneTip: "To bring WorkBuddy's own memory along later, tell it: “Import WorkBuddy's memory into MemoryLake”.",
-    workspaceSet: "Default workspace: ", workspaceLater: "No default workspace was set; the assistant will ask which one to use.",
-    lost: "This page lost contact with WorkBuddy. Reconnect MemoryLake from WorkBuddy to try again.",
-    refused: "MemoryLake did not accept this key. Check that it was copied whole and that it comes from app.memorylake.cn; accounts on app.memorylake.ai are separate.",
-    importTitle: "Bring WorkBuddy's memory along?",
-    importIntro: "WorkBuddy already keeps memory in files on this computer. Copy them into MemoryLake and your other devices and apps have it too. Nothing on this computer is changed.",
-    importNote: "The files are stored as documents in a project named “WorkBuddy memory”, and MemoryLake builds memory from them. Lines that look like passwords or keys are left out. You can delete the documents in MemoryLake at any time.",
-    importGo: "Import selected", importing: "Importing...", importSkip: "Not now",
-    importNone: "Select at least one item, or choose “Not now”.",
+    title: "Connect MemoryLake", intro: "Sign in so WorkBuddy can use your memory.",
+    browser: "Sign in with browser", starting: "Opening MemoryLake...", useKey: "Use an API key instead",
+    apiKey: "Paste your API key", useBrowser: "Sign in with browser instead", openConsole: "Get an API key", connect: "Connect", connecting: "Checking...",
+    waitTitle: "Continue in your browser", waitIntro: "Approve in the MemoryLake tab. This page continues by itself.",
+    reopen: "Open it again", cancel: "Cancel",
+    pickTitle: "Choose a workspace", pickIntro: "Your memory is kept here.",
+    newWorkspace: "New workspace", newName: "WorkBuddy", nameNeeded: "Enter a name for the new workspace.",
+    useWorkspace: "Continue", saving: "Saving...", creating: "Creating...",
+    doneTitle: "You're connected", doneIntro: "You can close this page and go back to WorkBuddy.",
+    rowWorkspace: "Workspace", rowImport: "Imported", rowAuto: "Automatic memory",
+    autoOn: "On", autoPlugin: "On, via the MemoryLake plugin", autoOff: "Off",
+    files: " files", importFailed: " failed",
+    lost: "This page lost contact with WorkBuddy. Reconnect MemoryLake from WorkBuddy.",
+    refused: "MemoryLake did not accept this key. Check that it is complete and from app.memorylake.cn.",
+    importTitle: "Import existing memory?", importIntro: "Copy WorkBuddy's memory files on this computer into MemoryLake. Lines that look like passwords are skipped.",
+    importGo: "Import", importing: "Importing...", skip: "Skip",
+    importNone: "Select at least one item, or skip.",
     kindProfile: "Your profile", kindAccount: "Account memory", kindGlobal: "Long-term memory",
     kindWorkspace: "Workspace memory: ", kindNotes: "Daily notes: ",
-    files: " files", updated: "updated ", removed: " lines that look like credentials will be left out",
-    stored: "already in MemoryLake, will be replaced",
-    imported: "Imported from WorkBuddy: ", importedFiles: " files. MemoryLake is building memory from them.",
-    importFailed: " could not be imported: ",
-    autoTitle: "Turn on automatic memory?",
-    autoIntro: "With it on, WorkBuddy checks MemoryLake before every answer and saves each conversation there afterwards, without being asked.",
-    autoNote: "What is saved to MemoryLake: the messages you send in WorkBuddy and its final replies, not its tool calls or your files. It applies from the next new conversation, and stops when you disconnect MemoryLake in WorkBuddy. Without it, MemoryLake is used only when you ask WorkBuddy to look something up or remember it.",
-    autoGo: "Turn on automatic memory", autoBusy: "Turning on...", autoSkip: "Not now",
-    autoOn: "Automatic memory is on, from the next new conversation.",
-    autoPlugin: "Automatic memory is provided by the MemoryLake plugin already installed in WorkBuddy.",
-    autoWorkspace: " It uses the workspace this computer was already set up with: ",
+    updated: "updated ", removed: " lines skipped", stored: "will replace the copy in MemoryLake",
+    importQuota: "Your account is out of quota. Skip for now and import later.", quotaLink: "View plans",
+    autoTitle: "Turn on automatic memory?", autoIntro: "Checks MemoryLake before answering and saves each conversation after.",
+    autoNote: "Saves only your messages and the replies, from the next new conversation.",
+    autoGo: "Turn on", autoBusy: "Turning on...",
   },
   zh: {
-    title: "连接 MemoryLake", intro: "让这台电脑上的 memorylake 命令行登录到你的 MemoryLake 账号。API key 只保存在本机。",
-    browser: "在浏览器中登录", starting: "正在打开 MemoryLake……",
-    browserHint: "在 MemoryLake 网站上登录并确认授权后，MemoryLake 会为这台电脑创建一个 API key，可在控制台查看和吊销。",
-    useKey: "改用 API key",
-    apiKey: "API key", noKey: "还没有 API key？", openConsole: "到 MemoryLake 控制台创建一个",
-    connect: "连接", connecting: "正在校验……",
-    waitTitle: "完成登录", waitIntro: "已在新标签页打开 MemoryLake。请在那里登录并确认授权，本页会自动继续。",
-    reopen: "重新打开 MemoryLake 页面", cancel: "取消",
-    pickTitle: "选择工作区", pickIntro: "之后的命令默认使用这个工作区，随时可以更换。",
-    useWorkspace: "使用这个工作区", saving: "正在保存……",
-    doneTitle: "MemoryLake 已连接", doneIntro: "可以关闭此页面，回到 WorkBuddy 继续。",
-    doneTip: "以后想导入 WorkBuddy 自带的记忆，可以对 WorkBuddy 说：“把 WorkBuddy 已有的记忆导入 MemoryLake”。",
-    workspaceSet: "默认工作区：", workspaceLater: "尚未设置默认工作区，助手会在需要时询问你用哪一个。",
-    lost: "此页面已与 WorkBuddy 失去联系。请回到 WorkBuddy 重新连接 MemoryLake。",
-    refused: "MemoryLake 没有接受这个 key。请确认复制完整，并且它来自 app.memorylake.cn：app.memorylake.ai 的账号与它互不相通。",
-    importTitle: "把 WorkBuddy 的记忆一起带上？",
-    importIntro: "WorkBuddy 已经在这台电脑的文件里保存了一些记忆。把它们复制到 MemoryLake，你的其他设备和应用也能用上。这台电脑上的文件不会被改动。",
-    importNote: "文件会作为文档保存在名为“WorkBuddy memory”的项目里，MemoryLake 会从中提炼记忆。看起来像密码或密钥的行不会上传。之后可以随时在 MemoryLake 里删除这些文档。",
-    importGo: "导入所选", importing: "正在导入……", importSkip: "暂不导入",
-    importNone: "请至少选择一项，或点“暂不导入”。",
-    kindProfile: "你的个人档案", kindAccount: "账号记忆", kindGlobal: "长期记忆",
+    title: "连接 MemoryLake", intro: "登录后，WorkBuddy 即可使用你的记忆。",
+    browser: "使用浏览器登录", starting: "正在打开 MemoryLake……", useKey: "改用 API key",
+    apiKey: "粘贴 API key", useBrowser: "改用浏览器登录", openConsole: "获取 API key", connect: "连接", connecting: "正在校验……",
+    waitTitle: "在浏览器中继续", waitIntro: "在 MemoryLake 页面确认授权，本页会自动继续。",
+    reopen: "重新打开", cancel: "取消",
+    pickTitle: "选择工作区", pickIntro: "你的记忆将保存在这里。",
+    newWorkspace: "新建工作区", newName: "WorkBuddy", nameNeeded: "请输入新工作区的名称。",
+    useWorkspace: "继续", saving: "正在保存……", creating: "正在创建……",
+    doneTitle: "已连接", doneIntro: "可以关闭此页面，回到 WorkBuddy。",
+    rowWorkspace: "工作区", rowImport: "已导入", rowAuto: "自动记忆",
+    autoOn: "已开启", autoPlugin: "已开启（MemoryLake 套件）", autoOff: "未开启",
+    files: " 个文件", importFailed: " 个失败",
+    lost: "此页面已与 WorkBuddy 断开，请回到 WorkBuddy 重新连接。",
+    refused: "MemoryLake 未接受这个 key，请确认它完整且来自 app.memorylake.cn。",
+    importTitle: "导入已有记忆？", importIntro: "把 WorkBuddy 在本机的记忆文件复制到 MemoryLake，疑似密码的内容会跳过。",
+    importGo: "导入", importing: "正在导入……", skip: "跳过",
+    importNone: "请至少选择一项，或点“跳过”。",
+    kindProfile: "个人档案", kindAccount: "账号记忆", kindGlobal: "长期记忆",
     kindWorkspace: "工作区记忆：", kindNotes: "每日笔记：",
-    files: " 个文件", updated: "更新于 ", removed: " 行疑似密码或密钥，不会上传",
-    stored: "MemoryLake 里已有，将被替换",
-    imported: "已从 WorkBuddy 导入 ", importedFiles: " 个文件，MemoryLake 正在从中提炼记忆。",
-    importFailed: " 个文件未能导入：",
-    autoTitle: "开启自动记忆？",
-    autoIntro: "开启后，WorkBuddy 每次回答前会先查一遍 MemoryLake，每轮对话结束后把内容存进去，不需要你提醒。",
-    autoNote: "会保存到 MemoryLake 的内容：你在 WorkBuddy 里发的消息和它的最终回复，不包括工具调用和你的文件。从下一个新对话开始生效，在 WorkBuddy 里断开 MemoryLake 即停止。不开启的话，只有你让 WorkBuddy 去查或去记的时候才会用到 MemoryLake。",
-    autoGo: "开启自动记忆", autoBusy: "正在开启……", autoSkip: "暂不开启",
-    autoOn: "自动记忆已开启，从下一个新对话开始生效。",
-    autoPlugin: "自动记忆由 WorkBuddy 里已安装的 MemoryLake 套件提供。",
-    autoWorkspace: " 它使用这台电脑之前设置好的工作区：",
+    updated: "更新于 ", removed: " 行已跳过", stored: "将替换 MemoryLake 中的旧版本",
+    importQuota: "账号额度不足，暂时无法导入。可以先跳过，之后再导入。", quotaLink: "查看套餐",
+    autoTitle: "开启自动记忆？", autoIntro: "回答前先查 MemoryLake，对话后自动保存。",
+    autoNote: "只保存你的消息和回复，从下个新对话生效。",
+    autoGo: "开启", autoBusy: "正在开启……",
   },
 };
 const t = TEXT[(navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en"];
@@ -1001,6 +1053,7 @@ const $ = (id) => document.getElementById(id);
 const show = (id) => { for (const s of document.querySelectorAll("section")) s.hidden = s.id !== id; };
 const fail = (id, message) => { const node = $(id); node.textContent = message; node.hidden = !message; };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const busy = (button, text) => { button.dataset.idle ??= button.textContent; button.disabled = !!text; button.textContent = text || button.dataset.idle; };
 
 async function call(action, body) {
   try {
@@ -1028,34 +1081,39 @@ function choice(type, name, value, title, detail, checked) {
 }
 
 $("console-link").href = CONSOLE || "#";
+$("quota-link").href = CONSOLE || "#";
 $("console-link").parentElement.hidden = !CONSOLE;
 
+// Browser login or a pasted key: one at a time.
+$("api-key").placeholder = t.apiKey;
+$("api-key").setAttribute("aria-label", t.apiKey);
 function showKeyForm(visible) {
   $("key-part").hidden = !visible;
-  $("show-key").hidden = visible;
+  $("browser-part").hidden = visible;
+  $("show-browser").hidden = !BROWSER_LOGIN;
   $("api-key").required = visible;
 }
-$("browser-part").hidden = !BROWSER_LOGIN;
 showKeyForm(!BROWSER_LOGIN);
 $("show-key").addEventListener("click", () => { showKeyForm(true); $("api-key").focus(); });
+$("show-browser").addEventListener("click", () => showKeyForm(false));
 
 let workspaceInUse = null;
 let imported = null;
+function row(term, value) {
+  const div = document.createElement("div");
+  const dt = document.createElement("dt");
+  const dd = document.createElement("dd");
+  dt.textContent = term; dd.textContent = value;
+  div.append(dt, dd);
+  $("summary").append(div);
+}
 async function finish(auto) {
-  $("done-detail").textContent = workspaceInUse ? t.workspaceSet + workspaceInUse.name : t.workspaceLater;
-  if (auto) {
-    let text = auto.state === "plugin" ? t.autoPlugin : t.autoOn;
-    if (auto.workspace && auto.workspace !== workspaceInUse?.id) text += t.autoWorkspace + auto.workspace;
-    $("done-auto").textContent = text;
-    $("done-auto").hidden = false;
+  if (workspaceInUse) row(t.rowWorkspace, workspaceInUse.name);
+  if (imported) row(t.rowImport, imported.imported + t.files + (imported.failed.length ? ", " + imported.failed.length + t.importFailed : ""));
+  if (workspaceInUse || auto) {
+    row(t.rowAuto, !auto ? t.autoOff : auto.state === "plugin" ? t.autoPlugin : t.autoOn);
   }
-  if (imported) {
-    let text = t.imported + imported.imported + t.importedFiles;
-    if (imported.failed.length) text += " " + imported.failed.length + t.importFailed + imported.failed.map((f) => f.name).join(", ");
-    $("done-import").textContent = text;
-    $("done-import").hidden = false;
-    $("done-tip").hidden = true;
-  }
+  $("summary").hidden = !$("summary").children.length;
   show("step-done");
   await call("finish");
 }
@@ -1097,9 +1155,20 @@ async function offerAuto(result) {
   finish();
 }
 
+// Pick a workspace or make a new one. The new one is the last choice, with
+// its name field shown only while it is picked.
+const NEW = "+new";
 function loggedIn(result) {
-  if (!result.workspaces.length) return offerImport(result.workspace);
-  result.workspaces.forEach((w, index) => $("workspaces").append(choice("radio", "workspace", w.id, w.name, w.id, index === 0)));
+  const list = $("workspaces");
+  const current = result.workspace?.id || result.current || result.workspaces[0]?.id;
+  result.workspaces.forEach((w) => list.append(choice("radio", "workspace", w.id, w.name, "", w.id === current)));
+  list.append(choice("radio", "workspace", NEW, t.newWorkspace, "", !result.workspaces.length));
+  const name = Object.assign(document.createElement("input"), { type: "text", id: "new-name", className: "new-name", value: t.newName, maxLength: 100 });
+  name.setAttribute("aria-label", t.newWorkspace);
+  list.append(name);
+  const sync = () => { name.hidden = new FormData($("workspace-form")).get("workspace") !== NEW; };
+  list.addEventListener("change", (event) => { sync(); if (event.target.value === NEW) name.select(); });
+  sync();
   $("workspace-form").workspaces = result.workspaces;
   show("step-workspace");
 }
@@ -1108,9 +1177,9 @@ $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if ($("key-part").hidden) return;
   const button = $("login-button");
-  button.disabled = true; button.textContent = t.connecting; fail("login-error", "");
+  busy(button, t.connecting); fail("login-error", "");
   const result = await call("login", { apiKey: $("api-key").value });
-  button.disabled = false; button.textContent = t.connect;
+  busy(button);
   if (!result.ok) return fail("login-error", result.refused ? t.refused : result.error);
   $("api-key").value = "";
   loggedIn(result);
@@ -1122,9 +1191,9 @@ $("browser-button").addEventListener("click", async () => {
   // Open the tab now, while the click still allows it, and point it at
   // MemoryLake once the CLI has said where.
   const tab = window.open("about:blank", "_blank");
-  button.disabled = true; button.textContent = t.starting; fail("browser-error", "");
+  busy(button, t.starting); fail("browser-error", "");
   const started = await call("browser");
-  button.disabled = false; button.textContent = t.browser;
+  busy(button);
   if (!started.ok) {
     tab?.close();
     return fail("browser-error", started.error);
@@ -1163,9 +1232,19 @@ $("workspace-form").addEventListener("submit", async (event) => {
   const form = event.currentTarget;
   const id = new FormData(form).get("workspace");
   const button = $("workspace-button");
-  button.disabled = true; button.textContent = t.saving; fail("workspace-error", "");
+  fail("workspace-error", "");
+  if (id === NEW) {
+    const name = $("new-name").value.trim();
+    if (!name) { $("new-name").focus(); return fail("workspace-error", t.nameNeeded); }
+    busy(button, t.creating);
+    const created = await call("workspaceCreate", { name });
+    busy(button);
+    if (!created.ok) return fail("workspace-error", created.error);
+    return offerImport(created.workspace);
+  }
+  busy(button, t.saving);
   const result = await call("workspace", { id });
-  button.disabled = false; button.textContent = t.useWorkspace;
+  busy(button);
   if (!result.ok) return fail("workspace-error", result.error);
   offerImport(form.workspaces.find((w) => w.id === id));
 });
@@ -1175,19 +1254,20 @@ $("import-form").addEventListener("submit", async (event) => {
   const ids = new FormData(event.currentTarget).getAll("group");
   if (!ids.length) return fail("import-error", t.importNone);
   const button = $("import-button");
-  button.disabled = true; $("import-skip").disabled = true; button.textContent = t.importing; fail("import-error", "");
+  busy(button, t.importing); $("import-skip").disabled = true; fail("import-error", "");
   const result = await call("importRun", { ids });
-  button.disabled = false; $("import-skip").disabled = false; button.textContent = t.importGo;
-  if (!result.ok) return fail("import-error", result.error);
+  busy(button); $("import-skip").disabled = false;
+  $("import-quota").hidden = !(result.quota && CONSOLE);
+  if (!result.ok) return fail("import-error", result.quota ? t.importQuota : result.error);
   offerAuto(result);
 });
 $("import-skip").addEventListener("click", () => offerAuto());
 
 $("auto-button").addEventListener("click", async () => {
   const button = $("auto-button");
-  button.disabled = true; $("auto-skip").disabled = true; button.textContent = t.autoBusy; fail("auto-error", "");
+  busy(button, t.autoBusy); $("auto-skip").disabled = true; fail("auto-error", "");
   const result = await call("autoEnable");
-  button.disabled = false; $("auto-skip").disabled = false; button.textContent = t.autoGo;
+  busy(button); $("auto-skip").disabled = false;
   if (!result.ok) return fail("auto-error", result.error);
   finish(result);
 });
