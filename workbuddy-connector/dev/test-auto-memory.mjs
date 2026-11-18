@@ -10,7 +10,7 @@
 // Without a WorkBuddy to install with, only the generated plugin is checked.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +50,15 @@ const installed = () => readJson(join(workbuddy, "plugins/installed_plugins.json
 const settings = join(workbuddy, "settings.json");
 const config = join(home, ".memorylake/harness/config.md");
 
+// As if the package had come out of a zip that dropped the executable bits.
+const packaged = join(root, "package");
+cpSync(join(dirname(login), "auto-memory"), join(packaged, "auto-memory"), { recursive: true });
+cpSync(login, join(packaged, "login.mjs"));
+for (const file of ["scripts/run.sh", "scripts/session-start.sh", "scripts/prompt-submit.sh", "bin/ml-recall"]) {
+  chmodSync(join(packaged, "auto-memory/memorylake-auto", file), 0o644);
+}
+const loginCopy = join(packaged, "login.mjs");
+
 const children = [];
 try {
   const mock = spawn(process.execPath, [join(here, "mock-api.mjs")], { env: { ...process.env, MOCK_WORKSPACES: "ws-1:Personal" }, stdio: "ignore" });
@@ -57,7 +66,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(mock.exitCode, null, "mock API did not start (is port 18765 taken?)");
 
-  const page = spawn(process.execPath, [login], { env, stdio: ["ignore", "pipe", "inherit"] });
+  const page = spawn(process.execPath, [loginCopy], { env, stdio: ["ignore", "pipe", "inherit"] });
   children.push(page);
   const url = await new Promise((resolve, reject) => {
     let out = "";

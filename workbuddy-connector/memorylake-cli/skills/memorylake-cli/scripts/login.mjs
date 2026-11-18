@@ -28,7 +28,7 @@ import { execFile, spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
-import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -592,6 +592,14 @@ async function installAutoMemory() {
   await rm(AUTO_COPY, { recursive: true, force: true });
   await mkdir(HARNESS_HOME, { recursive: true });
   await cp(AUTO_PACKAGE, AUTO_COPY, { recursive: true });
+  // WorkBuddy runs the hooks as programs. A package that travelled through a
+  // zip may have lost its executable bits, so set them again.
+  const plugin = join(AUTO_COPY, "memorylake-auto");
+  for (const dir of [join(plugin, "scripts"), join(plugin, "bin")]) {
+    for (const name of await entries(dir)) {
+      if (name !== "lib") await chmod(join(dir, name), 0o755).catch(() => {});
+    }
+  }
   for (const args of [["marketplace", "add", AUTO_COPY], ["install", AUTO_PLUGIN]]) {
     const result = await workbuddyPlugin(codebuddy, args);
     if (result.code !== 0) throw new Error(failureText(result));
