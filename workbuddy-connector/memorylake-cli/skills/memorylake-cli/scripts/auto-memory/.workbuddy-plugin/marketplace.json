@@ -1,0 +1,14 @@
+{
+  "name": "memorylake-connector",
+  "description": "Installed by the MemoryLake connector's sign-in page",
+  "owner": {
+    "name": "MemoryLake"
+  },
+  "plugins": [
+    {
+      "name": "memorylake-auto",
+      "source": "./memorylake-auto",
+      "description": "Automatic memory for the MemoryLake connector: a search-first reminder every turn and per-turn conversation sync"
+    }
+  ]
+}

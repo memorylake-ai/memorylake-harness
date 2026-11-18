@@ -30,9 +30,9 @@
   "authUrlDomain": "127.0.0.1",
   "authWaitForExit": true,
   "unAuth": {
-    "darwin": "memorylake auth logout || true",
-    "linux": "memorylake auth logout || true",
-    "win32": "memorylake auth logout & exit /b 0"
+    "darwin": "node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\" --disconnect; memorylake auth logout || true",
+    "linux": "node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\" --disconnect; memorylake auth logout || true",
+    "win32": "node \"%MEMORYLAKE_CONNECTOR_HOME%\\skills\\memorylake-cli\\scripts\\login.mjs\" --disconnect & memorylake auth logout & exit /b 0"
   },
   "status": {
     "darwin": "memorylake auth status",

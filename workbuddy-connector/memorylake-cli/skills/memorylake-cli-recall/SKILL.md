@@ -10,13 +10,28 @@ WorkBuddy machines, Claude Code, Codex, and more. WorkBuddy's own memory files
 (`MEMORY.md`, the daily notes) only cover this machine; keep maintaining them
 exactly as your instructions say. MemoryLake is where everything else lives.
 
-Nothing searches MemoryLake for you: this connector only adds the CLI. Each
-search is a command you choose to run, so the judgement below is yours.
+## Automatic memory: on or off
 
-**If the MemoryLake plugin is also installed** (the session opens with a
-"MemoryLake: connected" line and every message carries a reminder to run
-`ml-recall`), follow that plugin's `memorylake` skill for recall and skip this
-one. Searching twice gains nothing.
+The user chooses this on the connector's sign-in page. Tell which it is from
+the session itself.
+
+**On**: the session opens with a `MemoryLake: connected` line and every
+message carries a reminder to run `ml-recall`.
+
+- Search with `ml-recall "<query>"` (add `--top-k 10` for more) as the first
+  action of the turn. It prints a short digest: facts first, then pointers to
+  files. Everything below about phrasing a query, reading results, empty
+  results and failures applies to it unchanged. Do not also run
+  `memorylake search` for the same question; searching twice gains nothing.
+- The conversation is saved by itself after every turn (the user's messages
+  and your final replies, never tool calls), and MemoryLake builds memory
+  from it. See "Remembering" below for what that changes.
+- If a skill named `memorylake` is present (the MemoryLake plugin's own),
+  follow it for recall.
+
+**Off**: no such line and no reminder. Nothing searches or saves for you:
+each search is a `memorylake search` you choose to run, so the judgement
+below is yours.
 
 Login, workspace and command conventions are in the `memorylake-cli` skill.
 If a command fails with a login problem, follow what it says there.
@@ -82,6 +97,10 @@ or the other language if the user writes in more than one. If it is still
 empty, **tell the user honestly**. Never invent an answer from an empty
 search.
 
+If MemoryLake holds nothing about the user at all (a new account), offer once
+to import what WorkBuddy already remembers on this computer: the
+`memorylake-cli-import` skill.
+
 ## Failure is not emptiness
 
 A non-zero exit means the search did **not happen**. Say MemoryLake could not
@@ -125,8 +144,31 @@ the user asks for exactly that.
 
 ## Remembering
 
-Nothing is saved automatically. When the user asks you to remember something
-in MemoryLake, follow the `memorylake-cli-memory` skill (a fact under their
-own actor, written to stand on its own). When they state a lasting
-preference or decision without asking, you may offer once to save it; do not
-write it unasked. Never store passwords, keys or other secrets.
+**With automatic memory off**, nothing is saved by itself. When the user asks
+you to remember something in MemoryLake, follow the `memorylake-cli-memory`
+skill (a fact under their own actor, written to stand on its own). When they
+state a lasting preference or decision without asking, you may offer once to
+save it; do not write it unasked.
+
+**With automatic memory on**, what the user tells you is saved with the
+conversation. When they ask you to remember something, say it back in your
+reply as one full sentence that stands on its own ("Noted: Alice Chen prefers
+pnpm over npm") and add no fact by hand: a second copy becomes a duplicate
+memory. The `memorylake-cli-memory` skill is still how a memory is corrected,
+deleted, or filed under a project or an agent instead of the user.
+
+Never store passwords, keys or other secrets, either way.
+
+## Turning automatic memory on, off or down
+
+- **On**: it is offered on the sign-in page. Ask the user to reconnect the
+  MemoryLake connector in WorkBuddy's connector list and choose it there; it
+  applies from the next new conversation.
+- **Off**: disconnecting the connector removes it.
+- **Down**, when the user wants to keep the connector: the switches are in
+  `~/.memorylake/harness/config.md` and are read again on every message.
+  `sync_conversations: false` stops saving conversations (searching keeps
+  working), `sync_deny: ~/work, ~/clients` stops it under those folders,
+  `recall_reminder: false` and `recall_gate: false` stop the reminder and the
+  one held-back tool call. Change only the key the user asked about and keep
+  the rest of the file.
