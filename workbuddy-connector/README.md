@@ -178,7 +178,10 @@ On the page the user:
    there; MemoryLake sends the browser back to the CLI's own loopback port,
    and the CLI stores the API key MemoryLake creates for this machine. The
    page watches for the CLI to finish;
-2. picks a default workspace when the account has more than one;
+2. picks the default workspace, or creates one (`workspace create` with a
+   generated `--custom-id`). The workspace already in use is selected: the
+   CLI's default, or after a logout the one in `config.md`. An account with
+   no workspace is offered only a new one;
 3. is shown the WorkBuddy memory files found on this computer, grouped
    (profile, account memory, each workspace's `MEMORY.md`, each workspace's
    daily notes) with size, date, how many lines will be left out as
@@ -275,9 +278,11 @@ locations. The marketplace is added from a copy under
 directory is replaced when WorkBuddy updates the connector. Before that the
 page writes `~/.memorylake/harness/config.md`, the file the hooks read, with
 the workspace chosen on the page and the account's own actor (bound to the
-workspace if it was not). A configuration another MemoryLake harness wrote
-keeps its workspace, actor and switches; only missing WorkBuddy keys are
-added, and the page says so when that workspace is not the one just chosen.
+workspace if it was not). An existing configuration keeps its switches,
+gains any missing WorkBuddy keys, and takes the chosen workspace; its actor
+is kept only when the workspace did not change, so a reconnect to another
+workspace or account never writes to the old one. The other MemoryLake
+harnesses on the computer read the same file, so they follow the choice too.
 Last, it links `~/.memorylake/bin/memorylake` to the CLI the connector
 installed, unless something is already there: that is where the hooks look
 when the CLI is not on their `PATH`, and in WorkBuddy 5.11.3 a hook's `PATH`

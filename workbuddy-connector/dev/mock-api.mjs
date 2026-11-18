@@ -1,7 +1,8 @@
 // Minimal stand-in for a MemoryLake deployment, at base URL http://127.0.0.1:18765.
 // Accepts the test key sk-test-mock, and serves the CLI's browser login: a
 // consent page with Approve / Deny links, a token endpoint that checks PKCE,
-// and endpoints that create and revoke the keys that login hands out.
+// and endpoints that create and revoke the keys that login hands out. Lists,
+// reads and creates workspaces.
 import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 
@@ -76,6 +77,15 @@ createServer(async (req, res) => {
 
   const key = bearer(req);
   if (key !== KEY && !(issued.has(key) && !issued.get(key).revoked)) return send(401, { success: false, message: "service account not found", error_code: "UNAUTHORIZE" });
+  if (req.method === "POST" && url.pathname === "/api/v3/workspaces") {
+    const { name, custom_id, description } = JSON.parse((await readBody(req)) || "{}");
+    if (!name || !custom_id) return send(400, { success: false, message: "name and custom_id are required", error_code: "INVALID_ARGUMENT" });
+    if (WS.some((w) => w.custom_id === custom_id)) return send(409, { success: false, message: "custom_id already in use", error_code: "CONFLICT" });
+    const created = { id: `ws-${nextId++}`, name, description: description || "", metadata: {}, custom_id, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    WS.push(created);
+    console.error("  created workspace", created.id, JSON.stringify(name));
+    return send(200, { success: true, data: created });
+  }
   if (url.pathname === "/api/v3/workspaces") return send(200, { success: true, data: { items: WS } });
   const one = WS.find((w) => url.pathname === `/api/v3/workspaces/${w.id}`);
   if (one) return send(200, { success: true, data: one });

@@ -27,6 +27,7 @@ const state = existsSync(statePath)
   ? JSON.parse(readFileSync(statePath, "utf8"))
   : { project: null, items: [], documents: [], calls: [], next: 1 };
 state.bound ??= [];
+state.bindings ??= []; // "workspace/actor"
 state.calls.push(args.join(" "));
 const save = () => writeFileSync(statePath, JSON.stringify(state, null, 2));
 const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
@@ -43,11 +44,15 @@ switch (command) {
   case "actor me":
     print({ id: "actor-me", display_name: "Test User" });
     break;
-  case "actor list":
-    print({ items: state.bound.map((actor_id) => ({ actor_id, status: "ACTIVE" })), continuation_token: null });
+  case "actor list": {
+    const prefix = `${flag("--workspace")}/`;
+    const actors = state.bindings.filter((binding) => binding.startsWith(prefix)).map((binding) => binding.slice(prefix.length));
+    print({ items: actors.map((actor_id) => ({ actor_id, status: "ACTIVE" })), continuation_token: null });
     break;
+  }
   case "actor bind":
     if (!state.bound.includes(flag("--actor"))) state.bound.push(flag("--actor"));
+    if (!state.bindings.includes(`${flag("--workspace")}/${flag("--actor")}`)) state.bindings.push(`${flag("--workspace")}/${flag("--actor")}`);
     print({ actor_id: flag("--actor"), workspace_id: flag("--workspace") });
     break;
   case "project list":
@@ -99,6 +104,9 @@ switch (command) {
     break;
   }
   case "library upload": {
+    if (process.env.STUB_QUOTA_FILE && existsSync(process.env.STUB_QUOTA_FILE)) {
+      fail("Insufficient quota for this operation. Please upgrade your plan or try again later. [QUOTA_EXCEEDED]");
+    }
     const name = flag("--name");
     const content = readFileSync(args[2], "utf8");
     let item = state.items.find((candidate) => candidate.type === "file" && candidate.name === name);
