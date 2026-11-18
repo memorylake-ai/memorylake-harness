@@ -1,11 +1,12 @@
-# MemoryLake CLI connector for WorkBuddy
+# MemoryLake connector for WorkBuddy
 
 A [WorkBuddy connector](https://open.workbuddy.cn/docs/connector) of the
 **CLI + Skill** kind. One click on **Connect** in WorkBuddy:
 
 1. installs the [`memorylake` CLI](https://github.com/memorylake-ai/memorylake-cli)
    (and a Node runtime, if the machine has none),
-2. opens a page in the browser where the user signs in and picks a workspace,
+2. opens a page in the browser where the user signs in, picks a workspace and
+   may import WorkBuddy's own memory files,
 3. hands the agent skills that teach it to drive the CLI.
 
 Nothing needs to be installed beforehand.
@@ -18,15 +19,24 @@ Nothing needs to be installed beforehand.
 | MCP connector (`source: memorylake`) | the `memorylake-mcp` repository | Memory and library tools over MCP, cloud OAuth |
 | CLI connector (`source: memorylake-cli`) | this directory | The whole CLI surface on demand: memory, workspaces, projects, files, team and access |
 
-A connector has no hooks. The agent reaches for the CLI only when a skill
-triggers, so this does not replace the plugin's automatic recall and sync.
-`memorylake-cli-recall` is the closest a connector gets: its description
-asks the agent to search at the start of any turn that could depend on the
-user's history, and it carries the plugin skill's rules for phrasing and
-judging a search (adapted from `workbuddy-plugin/skills/memorylake`, with
-`memorylake search` in place of `ml-recall`). Whether the agent follows it
-is up to the agent. Nothing is saved unless the user asks. With the plugin
-installed as well, the skill steps aside for the plugin's `ml-recall`.
+A connector has no hooks, so by itself the agent reaches for the CLI only
+when a skill triggers. `memorylake-cli-recall` asks it to search at the start
+of any turn that could depend on the user's history, with the plugin skill's
+rules for phrasing and judging a search; whether the agent follows it is up
+to the agent, and nothing is saved unless the user asks.
+
+The sign-in page closes that gap for users who want it: its last step offers
+**automatic memory**, which installs a small WorkBuddy plugin holding the
+MemoryLake plugin's hooks and `ml-recall` and nothing else (see
+[Automatic memory](#automatic-memory)). The two products stay separate and
+each is complete alone:
+
+| Installed | Sign-in, CLI, import, managing MemoryLake | Recall and saving |
+| --- | --- | --- |
+| Plugin only | `/memorylake:init`, the plugin's skill | automatic (the plugin's hooks) |
+| Connector only, automatic memory off | the connector | when the agent or the user decides |
+| Connector only, automatic memory on | the connector | automatic (the same hooks, installed by the page) |
+| Both | either | automatic, by the plugin; the page installs nothing and the connector's hooks stand down |
 The `source` differs from the MCP connector's because WorkBuddy requires it
 to be globally unique.
 
@@ -42,17 +52,23 @@ workbuddy-connector/
     ├── icon.png
     └── skills/
         ├── memorylake-cli/          entry skill, adapted for the connector
-        │   └── scripts/login.mjs    the sign-in page (browser login, or an API key)
+        │   └── scripts/
+        │       ├── login.mjs        the sign-in page (browser login or an API key, the import, automatic memory)
+        │       └── auto-memory/     generated: the plugin the page installs for automatic memory
         ├── memorylake-cli-recall/   when and how to recall, written for the connector
-        ├── memorylake-cli-memory/   verbatim from the CLI repository
+        ├── memorylake-cli-import/   one-off import of WorkBuddy's own memory files
+        ├── memorylake-cli-memory/   from the CLI repository, one section rewritten
         └── memorylake-cli-access/   verbatim from the CLI repository
 ```
 
-`memorylake-cli-memory` and `memorylake-cli-access` are unmodified copies of
-`skills/` in memorylake-cli at tag `v20261117`. The CLI repository tests
-every command in them against its argument parser, so refresh them by copying
-rather than editing here, and raise `versionCheck.minVersion` to the tag they
-came from:
+`memorylake-cli-memory` and `memorylake-cli-access` are copies of `skills/`
+in memorylake-cli at tag `v20261117`. The CLI repository tests every command
+in them against its argument parser, so refresh them by copying rather than
+editing here, and raise `versionCheck.minVersion` to the tag they came from.
+One section differs and has to be put back after a refresh: in
+`memorylake-cli-memory/SKILL.md`, "Alongside the MemoryLake harness" is
+"With automatic memory on" here (same advice, worded for the connector's own
+hooks as well as the plugin's); it holds no commands.
 
 ```bash
 git -C ../../memorylake-cli archive v20261117 skills/memorylake-cli-memory skills/memorylake-cli-access | tar -x -C memorylake-cli
@@ -64,6 +80,30 @@ do when logged out or when the key has expired or been refused (reconnect
 the connector, never `auth login`), a rule against running `auth login` or
 `auth logout`, and a warning that revoking the connector's own key logs the
 computer out.
+
+`memorylake-cli-import` gives a new account something to recall. WorkBuddy
+keeps its own memory in Markdown files (`~/.workbuddy/USER.md`,
+`~/.workbuddy/memory/<account>_memory.md`, and `MEMORY.md` plus daily notes
+under each workspace's `.workbuddy/memory/`; paths seen in 5.11.3, not a
+documented interface). The files the user picks are uploaded as documents
+of one project, `WorkBuddy memory` (custom id `workbuddy-memory`), and the
+distilling is left to MemoryLake, which builds memory from documents by
+itself and drops that memory again when a document is deleted. So a repeat
+import replaces a file cleanly, with no duplicate facts to hunt down. Files
+are stored verbatim, so lines that look like a credential are left out of
+the copy that is uploaded. It is a one-off copy; a connector has no hook to
+follow later notes.
+
+The import is offered in two places, and they store under the same names so
+either can replace what the other stored:
+
+- **The sign-in page**, as its last step. An agent reads a skill only when it
+  decides to, so a step that every new user should at least see cannot live
+  in a skill alone. The page does it without the model (see below).
+- **The skill**, for later: an import that was skipped, a repeat after the
+  files changed, and workspaces outside `~/WorkBuddy/`, which the page does
+  not look for. The first marketplace example and the page's closing hint
+  name the sentence that triggers it.
 
 ## What happens on Connect
 
@@ -119,22 +159,46 @@ Requires WorkBuddy 4.24.0 (`versionCheck`, localized listing fields).
 WorkBuddy runs `auth` with no terminal and no standard input, and a CLI
 connector gets no credential form. The CLI does log in through the browser
 (`auth login --no-browser` prints the MemoryLake authorization URL and waits
-for the browser to come back), but it has to be told which deployment first:
-China and Global have separate accounts, and nothing in WorkBuddy can ask.
-`scripts/login.mjs` asks: it serves a one-off page on `127.0.0.1`, prints its
-URL for WorkBuddy to open, and exits when the user is done.
+for the browser to come back), but a default workspace still has to be
+chosen, and nothing in WorkBuddy can ask. `scripts/login.mjs` asks: it
+serves a one-off page on `127.0.0.1`, prints its URL for WorkBuddy to open,
+and exits when the user is done.
+
+The page signs in to the **China deployment** (`app.memorylake.cn`) and does
+not offer a choice: WorkBuddy's users are in China, and China and Global
+have separate accounts, so a choice mostly offered a way to pick the wrong
+one. `MEMORYLAKE_BASE_URL` in the environment overrides it, which is what
+the tests use; an account on `app.memorylake.ai` cannot connect otherwise.
 
 On the page the user:
 
-1. picks the deployment (China, Global, or the one `MEMORYLAKE_BASE_URL` in
-   `cli.json`'s `env` names, for a deployment of one's own);
-2. clicks **Sign in with browser**. The page runs
+1. clicks **Sign in with browser**. The page runs
    `memorylake auth login --no-browser --base-url … --key-name "WorkBuddy · <host>" --timeout …`
    and opens the URL it prints in a new tab. The user signs in and approves
    there; MemoryLake sends the browser back to the CLI's own loopback port,
    and the CLI stores the API key MemoryLake creates for this machine. The
    page watches for the CLI to finish;
-3. picks a default workspace when the account has more than one.
+2. picks a default workspace when the account has more than one;
+3. is shown the WorkBuddy memory files found on this computer, grouped
+   (profile, account memory, each workspace's `MEMORY.md`, each workspace's
+   daily notes) with size, date, how many lines will be left out as
+   credentials, and whether MemoryLake already holds them. The long-term
+   files are ticked, daily notes are not. **Import selected** uploads them;
+   **Not now** skips. The step does not appear when no file is found or no
+   workspace was chosen;
+4. is asked whether to turn on automatic memory, with what it saves spelled
+   out. **Turn on automatic memory** installs it; **Not now** skips. See
+   [Automatic memory](#automatic-memory) for when the step appears.
+
+The import runs `project get --by-custom-id` / `project create`,
+`library list` / `mkdir`, then per file `library upload --on-conflict
+overwrite` and `project document import`. A document a previous import
+stored under the same name is deleted first, because uploading over a
+Library file does not index it again; a `duplicate` answer from `import` is
+handled the same way. It does not wait for processing, so it fits in what is
+left of WorkBuddy's five minutes, and stops 20 seconds before the deadline
+with the rest reported as not imported. The page sends back group ids only,
+never paths, and files over 2 MB or empty are not offered.
 
 **Use an API key instead** keeps the old path: paste a key, which goes to
 `auth login --api-key`. It is also the only path when the installed CLI
@@ -142,7 +206,8 @@ predates browser login (`auth login --help` has no `--no-browser`); the page
 then shows the key field alone.
 
 Every step is carried out by the CLI (`auth login`, `workspace list`,
-`workspace use`), which stays the only thing that reads or writes its
+`workspace use`, and the import's `project` and `library` commands), which
+stays the only thing that reads or writes its
 credentials. The page follows the browser's language, Chinese or English.
 
 Details that matter:
@@ -152,7 +217,7 @@ Details that matter:
   is allowed, the page itself goes to MemoryLake; the CLI still finishes the
   login, `login.mjs` sets the default workspace if there is exactly one, and
   exits 15 seconds after the login, since no page is left to ask.
-- The page only follows a URL on the chosen deployment's own origin.
+- The page only follows a URL on the deployment's own origin.
 - The CLI's wait is bounded by what is left of WorkBuddy's five minutes,
   and stopping `login.mjs` (Cancel on the page, a timeout, or WorkBuddy
   killing it) stops the CLI with it.
@@ -180,9 +245,94 @@ it. `versionCheck.minVersion` is that tag, so WorkBuddy upgrades a CLI that
 is already installed (it runs `init` again when the version is lower). A
 CLI that is still older for some reason gets the API key field alone.
 
+## Automatic memory
+
+WorkBuddy runs hooks from plugins only, and the connector format has no place
+for them. So the page installs a plugin, `memorylake-auto@memorylake-connector`,
+which is the MemoryLake plugin for WorkBuddy reduced to its hooks and
+`ml-recall`: no commands and no skill, because the connector already installs
+the CLI, signs in, and ships the skills.
+
+**It is generated, never edited.** `dev/build-auto-memory.mjs` copies
+`workbuddy-plugin/scripts` and `bin` into `scripts/auto-memory/`, rewrites the
+few sentences that point at the plugin's commands and skill (each must match
+exactly once, or the build fails), and routes every hook through a `run.sh` of
+the connector's own. `--check` fails when the copy is out of date, and
+`dev/test-auto-memory.mjs` runs it first. The plugin itself is not changed by
+any of this and stays a product of its own.
+
+```bash
+node dev/build-auto-memory.mjs           # after any change under workbuddy-plugin/
+node dev/build-auto-memory.mjs --check
+```
+
+**Installing.** The page uses the `codebuddy` CLI that ships inside WorkBuddy
+(`…/app.asar.unpacked/cli/bin/codebuddy plugin marketplace add` and
+`plugin install`, with `CODEBUDDY_FORCE_LITE_WB_BUNDLE=1`), found by walking
+up to the app that started the command and then in the usual install
+locations. The marketplace is added from a copy under
+`~/.memorylake/harness/workbuddy-auto-memory/`, because the connector's own
+directory is replaced when WorkBuddy updates the connector. Before that the
+page writes `~/.memorylake/harness/config.md`, the file the hooks read, with
+the workspace chosen on the page and the account's own actor (bound to the
+workspace if it was not). A configuration another MemoryLake harness wrote
+keeps its workspace, actor and switches; only missing WorkBuddy keys are
+added, and the page says so when that workspace is not the one just chosen.
+Last, it links `~/.memorylake/bin/memorylake` to the CLI the connector
+installed, unless something is already there: that is where the hooks look
+when the CLI is not on their `PATH`, and in WorkBuddy 5.11.3 a hook's `PATH`
+does not include the directory connectors install into.
+
+**When the step appears.**
+
+| The page finds | It does |
+| --- | --- |
+| The MemoryLake plugin enabled in WorkBuddy | installs nothing, and says the plugin provides automatic memory |
+| Automatic memory installed by an earlier connect | installs it again without asking, so a reconnect brings the current hooks |
+| No WorkBuddy CLI, no `bash`, or no `jq` | skips the step |
+| Otherwise | asks |
+
+**Never both.** If the user installs the MemoryLake plugin later, the
+connector's hooks see it enabled in WorkBuddy's `settings.json` and exit
+before doing anything (`run.sh`), so a turn is never reminded or synced
+twice.
+
+**Disconnecting** runs `login.mjs --disconnect` before `auth logout`: it
+uninstalls the plugin, removes the marketplace and the CLI link. `config.md`
+stays, since the other MemoryLake harnesses on the computer read it. A
+conversation that is already open keeps the hooks it started with (WorkBuddy
+holds an uninstalled plugin's files until its sessions end); with the login
+gone they report MemoryLake as unreachable rather than searching.
+
+**The skills know both modes.** `memorylake-cli-recall` tells the agent how to
+see which one it is in (the session opens with `MemoryLake: connected` and
+every message carries the `ml-recall` reminder), to search with `ml-recall`
+instead of `memorylake search` there, and not to `fact add` what the
+conversation sync already saves.
+
 ## Testing
 
 `dev/` holds what the flow was verified with.
+
+The sign-in page's import step has a test of its own, which needs no
+browser: it starts the stand-in API and the page, signs in with the test
+key, and drives the page's API over fixture files, with `dev/cli-stub.mjs`
+answering the `project` and `library` commands so the test can see what was
+uploaded.
+
+```bash
+node dev/test-import.mjs      # MEMORYLAKE_REAL_BIN=/path/to/memorylake for a particular CLI
+```
+
+Automatic memory has one too. It needs a WorkBuddy on the computer, whose
+bundled CLI installs the plugin into a temporary configuration directory, not
+the real one. It then runs the installed hooks the way WorkBuddy does, checks
+that they stand down when the MemoryLake plugin is enabled, reconnects, and
+disconnects:
+
+```bash
+node dev/test-auto-memory.mjs
+```
 
 Replay WorkBuddy's connect flow from a shell, into scratch directories, with
 a stand-in for the MemoryLake API so no real key is involved:
@@ -244,6 +394,33 @@ logged in go through the sign-in page.
   replay of WorkBuddy's connect flow (`dev/wb-sim.mjs`) with the real
   installer and CLI, and a stand-in API for the key. The last proof, a click
   on Connect in the app with a real key, is still to do.
+- **The import has only met a stand-in CLI.** `dev/test-import.mjs` and a
+  pass through the page in a browser cover the scan, the credential filter,
+  the upload order and a repeat import, with `dev/cli-stub.mjs` in place of
+  the `project` and `library` commands. Their arguments were checked against
+  the real CLI's parser, and the output shapes against the plugin's
+  attachment sync, which uses the same commands in production. No file has
+  been imported into a real MemoryLake account through this page.
+- **Accounts on the Global deployment cannot connect.** The page signs in to
+  China only.
+- **Automatic memory leans on WorkBuddy internals.** Where the bundled
+  `codebuddy` CLI lives and how it is started are not documented interfaces
+  (read from 5.11.3 on macOS). When it cannot be found or fails, the step is
+  skipped or reports the error, and the connection itself is unaffected. The
+  Windows location is a guess and untested. The hooks are shell scripts that
+  need `bash` and `jq`, as the plugin's do.
+- **Automatic memory was seen working in the app once, with a probe.** On
+  WorkBuddy 5.11.3 (macOS), a plugin installed this way while the app was
+  running had its `SessionStart`, `UserPromptSubmit` and `Stop` hooks fire in
+  the first new conversation, with no restart. That run started its session
+  cold; WorkBuddy also keeps a pre-started process for new conversations, and
+  one started before the install might not have the plugin, which would cost
+  the first conversation only. The connector's own plugin, installed by a
+  real Connect in the app, has not been run: `dev/test-auto-memory.mjs`
+  installs into a temporary configuration directory and runs the hooks by
+  hand.
+- **The connector format does not mention plugins.** A connector that installs
+  one on the user's say-so may or may not pass review.
 - **Browser login through this page has only met the stand-in.** Every
   path of `login.mjs` (approve, deny, cancel, a re-login revoking the key
   it replaces, no new tab allowed) was run against `dev/mock-api.mjs`. The
@@ -258,5 +435,5 @@ Submit the `memorylake-cli/` directory, zipped, through
 [open.workbuddy.cn](https://open.workbuddy.cn):
 
 ```bash
-cd workbuddy-connector && zip -r memorylake-cli.zip memorylake-cli -x '*.DS_Store'
+cd workbuddy-connector && node dev/build-auto-memory.mjs --check && zip -r memorylake-cli.zip memorylake-cli -x '*.DS_Store'
 ```

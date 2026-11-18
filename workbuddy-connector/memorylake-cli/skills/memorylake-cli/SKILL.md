@@ -9,12 +9,14 @@ description: Operate MemoryLake from the terminal with the `memorylake` CLI - ch
 projects, files and databases, memories, agents and skills, the team and who
 may reach what. Every command prints the API response as pretty JSON.
 
-The MemoryLake CLI connector installed the CLI and keeps it up to date. Run
+The MemoryLake connector installed the CLI and keeps it up to date. Run
 every command through the Bash tool.
 
 Routine recall at the start of a turn is in the `memorylake-cli-recall`
-skill. If the MemoryLake plugin is also installed, recall goes through it
-(`ml-recall`) instead, and this CLI is for managing MemoryLake explicitly.
+skill. With automatic memory on (the user chose it on the connector's sign-in
+page, or installed the MemoryLake plugin), recall goes through `ml-recall`
+and conversations are saved by themselves; that skill says how to tell. This
+CLI is then for managing MemoryLake explicitly.
 
 ## Finding the binary
 
@@ -28,7 +30,7 @@ another copy comes first on `PATH`, list every copy (`which -a memorylake`,
 on Windows `where memorylake`), check each one's `version`, and use the first
 new enough copy by its full path for every command in these skills. If there
 is none, or the command is missing, ask the user to reconnect the MemoryLake
-CLI connector.
+connector.
 
 ## Before the first command
 
@@ -38,7 +40,7 @@ memorylake ws current       # which workspace commands default to, and why
 ```
 
 - **Not logged in** (`Logged in: no`): ask the user to reconnect the
-  MemoryLake CLI connector in WorkBuddy's connector list; that opens a page
+  MemoryLake connector in WorkBuddy's connector list; that opens a page
   where they sign in. Never ask for an API key, type one into a command, or
   echo one back.
 - **Key expired or refused:** a key from browser login expires, and `auth
@@ -52,7 +54,8 @@ memorylake ws current       # which workspace commands default to, and why
   profile and endpoint. If the user has several profiles or mentions another
   team, confirm which one before any change (`--profile <name>` selects
   one). Global (`app.memorylake.ai`) and China (`app.memorylake.cn`) are
-  separate deployments: an account on one does not exist on the other.
+  separate deployments: an account on one does not exist on the other. The
+  connector signs in to China.
 
 ## Conventions
 
@@ -98,6 +101,7 @@ memorylake ws current       # which workspace commands default to, and why
 | Task | Skill |
 | --- | --- |
 | Recall what the user told you before, or a file they stored, at the start of a turn | `memorylake-cli-recall` |
+| Import the memory WorkBuddy keeps on this computer into MemoryLake | `memorylake-cli-import` |
 | Remember, find, correct, trace or curate memory: facts, actors, conversations, search, conflicts | `memorylake-cli-memory` |
 | Who may do what: roles, permission rules, access scopes, access groups, permission levels | `memorylake-cli-access` |
 

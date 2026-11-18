@@ -1,7 +1,7 @@
 {
-  "name": "MemoryLake CLI",
-  "name_zh": "MemoryLake CLI",
-  "name_en": "MemoryLake CLI",
+  "name": "MemoryLake",
+  "name_zh": "MemoryLake",
+  "name_en": "MemoryLake",
   "description": "Cross-device long-term memory: recall and remember facts, get stored files back, manage workspaces.",
   "description_zh": "跨设备长期记忆：召回和记住事实、找回存进 MemoryLake 的文件，管理工作区、项目和团队权限。",
   "description_en": "Cross-device long-term memory: recall and remember facts, get stored files back, manage workspaces.",
@@ -10,17 +10,17 @@
   "version": "0.1.0",
   "minWorkbuddyVersion": "4.24.0",
   "examples_zh": [
+    "把 WorkBuddy 已有的记忆导入 MemoryLake",
     "用 MemoryLake 记住：我偏好用 pnpm，周报每周五下午发",
     "在 MemoryLake 里查一下我之前说过的项目截止日期",
     "把我之前存进 MemoryLake 的季度报告下载下来",
-    "MemoryLake 里关于发布流程的记忆有没有互相矛盾的",
     "看看这个 MemoryLake 项目谁有读写权限"
   ],
   "examples_en": [
+    "Import WorkBuddy's existing memory into MemoryLake",
     "Use MemoryLake to remember: I prefer pnpm and send weekly reports on Friday afternoons",
     "Look up the project deadline I mentioned before in MemoryLake",
     "Download the quarterly report I stored in MemoryLake earlier",
-    "Check whether MemoryLake holds conflicting memories about the release process",
     "Show who can read and write this MemoryLake project"
   ]
 }
