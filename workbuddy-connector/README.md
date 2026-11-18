@@ -57,15 +57,18 @@ workbuddy-connector/
         │       └── auto-memory/     generated: the plugin the page installs for automatic memory
         ├── memorylake-cli-recall/   when and how to recall, written for the connector
         ├── memorylake-cli-import/   one-off import of WorkBuddy's own memory files
-        ├── memorylake-cli-memory/   verbatim from the CLI repository
+        ├── memorylake-cli-memory/   from the CLI repository, one section rewritten
         └── memorylake-cli-access/   verbatim from the CLI repository
 ```
 
-`memorylake-cli-memory` and `memorylake-cli-access` are unmodified copies of
-`skills/` in memorylake-cli at tag `v20261117`. The CLI repository tests
-every command in them against its argument parser, so refresh them by copying
-rather than editing here, and raise `versionCheck.minVersion` to the tag they
-came from:
+`memorylake-cli-memory` and `memorylake-cli-access` are copies of `skills/`
+in memorylake-cli at tag `v20261117`. The CLI repository tests every command
+in them against its argument parser, so refresh them by copying rather than
+editing here, and raise `versionCheck.minVersion` to the tag they came from.
+One section differs and has to be put back after a refresh: in
+`memorylake-cli-memory/SKILL.md`, "Alongside the MemoryLake harness" is
+"With automatic memory on" here (same advice, worded for the connector's own
+hooks as well as the plugin's); it holds no commands.
 
 ```bash
 git -C ../../memorylake-cli archive v20261117 skills/memorylake-cli-memory skills/memorylake-cli-access | tar -x -C memorylake-cli
