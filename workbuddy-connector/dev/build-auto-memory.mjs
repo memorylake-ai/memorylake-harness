@@ -57,14 +57,15 @@ const RUN_SH = `#!/usr/bin/env bash
 # adds the two things only the connector knows:
 #   - the MemoryLake plugin does the same job, so when it is enabled these
 #     hooks stand down; otherwise every turn would be reminded and synced twice;
-#   - the connector keeps the CLI in WorkBuddy's own tools directory, which a
-#     hook's PATH may not include.
+#   - the connector keeps its CLI in WorkBuddy's own tools directory, which a
+#     hook's PATH may not include; it goes first, so an older memorylake
+#     elsewhere on the PATH is not the one that runs.
 root=$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)
 config="\${CODEBUDDY_CONFIG_DIR:-$HOME/.workbuddy}"
 if grep -Eq '"memorylake@memorylake"[[:space:]]*:[[:space:]]*true' "$config/settings.json" 2>/dev/null; then
   exit 0
 fi
-PATH="$PATH:$config/binaries/node/cli-connector-packages/bin"
+PATH="$config/binaries/node/cli-connector-packages/bin:$PATH"
 export PATH
 exec "$root/$1"
 `;

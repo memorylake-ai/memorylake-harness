@@ -104,7 +104,7 @@ try {
   assert.deepEqual(readJson(env.STUB_STATE).bound, ["actor-me"]);
   assert.equal((await call("autoScan")).state, "on");
   const link = join(home, ".memorylake/bin/memorylake");
-  assert.ok(lstatSync(link).isSymbolicLink(), "the hooks can find the CLI without it being on their PATH");
+  assert.ok(existsSync(link) && !lstatSync(link).isSymbolicLink(), "the hooks can find the CLI without it being on their PATH");
 
   // The installed hooks, run the way WorkBuddy runs them.
   const plugin = installed()[0].installPath;
@@ -160,13 +160,16 @@ try {
   await call("finish");
   assert.equal(await new Promise((resolve) => page.on("exit", resolve)), 0);
 
-  // Disconnecting takes the hooks out and keeps the shared configuration.
+  // Disconnecting takes the hooks out and the login the page made, and keeps
+  // the shared configuration.
   const gone = spawnSync(process.execPath, [login, "--disconnect"], { env, encoding: "utf8" });
   assert.equal(gone.status, 0, gone.stderr);
   assert.equal(installed(), undefined, "the plugin is uninstalled");
   assert.ok(!existsSync(join(home, ".memorylake/harness/workbuddy-auto-memory")));
-  assert.ok(!lstatSync(link, { throwIfNoEntry: false }), "the link is gone too");
+  assert.ok(existsSync(link), "the CLI copy stays, for the other MemoryLake tools");
   assert.ok(existsSync(config));
+  assert.match(realCli("auth", "status").stdout, /Logged in: no/, "the login the page made is gone");
+  assert.match(spawnSync(process.execPath, [login, "--status"], { env, encoding: "utf8" }).stdout, /Logged in: no/);
   console.log("ok: install, hooks, stand-down, reconnect, workspace change, disconnect");
 } finally {
   for (const child of children) child.kill();

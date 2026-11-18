@@ -30,14 +30,14 @@
   "authUrlDomain": "127.0.0.1",
   "authWaitForExit": true,
   "unAuth": {
-    "darwin": "node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\" --disconnect; memorylake auth logout || true",
-    "linux": "node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\" --disconnect; memorylake auth logout || true",
-    "win32": "node \"%MEMORYLAKE_CONNECTOR_HOME%\\skills\\memorylake-cli\\scripts\\login.mjs\" --disconnect & memorylake auth logout & exit /b 0"
+    "darwin": "node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\" --disconnect || true",
+    "linux": "node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\" --disconnect || true",
+    "win32": "node \"%MEMORYLAKE_CONNECTOR_HOME%\\skills\\memorylake-cli\\scripts\\login.mjs\" --disconnect & exit /b 0"
   },
   "status": {
-    "darwin": "memorylake auth status",
-    "linux": "memorylake auth status",
-    "win32": "memorylake auth status"
+    "darwin": "node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\" --status",
+    "linux": "node \"$MEMORYLAKE_CONNECTOR_HOME/skills/memorylake-cli/scripts/login.mjs\" --status",
+    "win32": "node \"%MEMORYLAKE_CONNECTOR_HOME%\\skills\\memorylake-cli\\scripts\\login.mjs\" --status"
   },
   "statusMatch": "Logged in: yes"
 }
