@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const login = join(here, "../memorylake-cli/skills/memorylake-cli/scripts/login.mjs");
+const login = join(here, "../memorylake/skills/memorylake-cli/scripts/login.mjs");
 
 // The generated plugin must be what the MemoryLake plugin's hooks are today.
 const check = spawnSync(process.execPath, [join(here, "build-auto-memory.mjs"), "--check"], { encoding: "utf8" });
@@ -86,21 +86,25 @@ try {
 
   const html = await (await fetch(url)).text();
   new Function(html.match(/<script>([\s\S]*)<\/script>/)[1]);
-  assert.ok(html.includes('id="step-auto"'));
+  assert.ok(html.includes('id="step-memory"'));
 
   // Nothing can be turned on before there is a workspace to write to.
   assert.equal((await call("autoEnable")).ok, false);
   assert.equal((await call("login")).workspace?.id, "ws-1");
-  assert.equal((await call("autoScan")).state, "available");
+  const ALL_ON = { recall: true, conversations: true, attachments: true };
+  assert.deepEqual(await call("autoScan"), { ok: true, state: "available", settings: ALL_ON }, "everything starts on");
 
-  const enabled = await call("autoEnable");
-  assert.deepEqual(enabled, { ok: true, state: "on", workspace: "ws-1" }, JSON.stringify(enabled));
+  const enabled = await call("autoEnable", { settings: ALL_ON });
+  assert.deepEqual(enabled, { ok: true, state: "on", workspace: "ws-1", settings: ALL_ON }, JSON.stringify(enabled));
   assert.ok(installed(), "WorkBuddy records the plugin as installed");
   assert.equal(readJson(settings).enabledPlugins["memorylake-auto@memorylake-connector"], true);
   const written = readFileSync(config, "utf8");
   assert.match(written, /^workspace: ws-1$/m);
   assert.match(written, /^actor: actor-me$/m, "the account's own actor, bound to the workspace on the way");
   assert.match(written, /^sync_conversations: true$/m);
+  assert.match(written, /^sync_attachments: true$/m, "attached files are uploaded unless turned off");
+  assert.match(written, /^recall_reminder: true$/m);
+  assert.match(written, /^recall_gate: true$/m);
   assert.deepEqual(readJson(env.STUB_STATE).bound, ["actor-me"]);
   assert.equal((await call("autoScan")).state, "on");
   const link = join(home, ".memorylake/bin/memorylake");
@@ -130,22 +134,45 @@ try {
   assert.deepEqual(await call("autoScan"), { ok: true, state: "plugin" });
   writeFileSync(settings, before);
 
-  // A reconnect installs again and leaves the configuration as it is.
-  assert.equal((await call("autoEnable")).ok, true);
+  // A reconnect shows the switches as they are, installs again and leaves the
+  // configuration as it is.
+  const again = await call("autoScan");
+  assert.deepEqual(again, { ok: true, state: "on", settings: ALL_ON });
+  assert.equal((await call("autoEnable", { settings: again.settings })).ok, true);
   assert.equal(readFileSync(config, "utf8"), written);
 
   // Another workspace chosen on a later connect: automatic memory follows it,
-  // with the actor bound there, and a setting the user changed stays.
+  // with the actor bound there, and a switch the user turned off shows off.
   writeFileSync(config, written.replace("recall_gate: true", "recall_gate: false"));
   const created = await call("workspaceCreate", { name: "Second" });
   assert.equal(created.ok, true, JSON.stringify(created));
-  const moved = await call("autoEnable");
+  const shown = (await call("autoScan")).settings;
+  assert.deepEqual(shown, { ...ALL_ON, recall: false });
+  const moved = await call("autoEnable", { settings: shown });
   assert.equal(moved.workspace, created.workspace.id);
   const rewritten = readFileSync(config, "utf8");
   assert.match(rewritten, new RegExp(`^workspace: ${created.workspace.id}$`, "m"));
   assert.match(rewritten, /^actor: actor-me$/m);
   assert.match(rewritten, /^recall_gate: false$/m);
+  assert.match(rewritten, /^recall_reminder: false$/m, "one switch, both keys");
   assert.ok(readJson(env.STUB_STATE).bindings.includes(`${created.workspace.id}/actor-me`));
+
+  // Files go only with the conversation.
+  const noChat = await call("autoEnable", { settings: { recall: true, conversations: false, attachments: true } });
+  assert.deepEqual(noChat.settings, { recall: true, conversations: false, attachments: false });
+  assert.match(readFileSync(config, "utf8"), /^sync_attachments: false$/m);
+  assert.ok(installed(), "recall alone still needs the hooks");
+
+  // Everything off: nothing for the hooks to do, so they go.
+  const off = await call("autoEnable", { settings: { recall: false, conversations: false, attachments: false } });
+  assert.equal(off.state, "off", JSON.stringify(off));
+  assert.equal(installed(), undefined, "no hooks with nothing on");
+  assert.match(readFileSync(config, "utf8"), /^sync_conversations: false$/m);
+  assert.equal((await call("autoScan")).state, "available");
+
+  // And back on.
+  assert.equal((await call("autoEnable", { settings: ALL_ON })).state, "on");
+  assert.ok(installed());
 
   // The next sign-in offers the workspace already in use: the CLI's default,
   // or after a logout the one automatic memory writes to.
@@ -170,7 +197,7 @@ try {
   assert.ok(existsSync(config));
   assert.match(realCli("auth", "status").stdout, /Logged in: no/, "the login the page made is gone");
   assert.match(spawnSync(process.execPath, [login, "--status"], { env, encoding: "utf8" }).stdout, /Logged in: no/);
-  console.log("ok: install, hooks, stand-down, reconnect, workspace change, disconnect");
+  console.log("ok: install, hooks, stand-down, reconnect, workspace change, switches, disconnect");
 } finally {
   for (const child of children) child.kill();
   rmSync(root, { recursive: true, force: true });

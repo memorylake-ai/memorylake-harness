@@ -559,8 +559,31 @@ async function autoMemoryState() {
   for (const tool of ["bash", "jq"]) {
     if ((await run(tool, ["--version"])).code !== 0) return { state: "unavailable", reason: tool };
   }
-  if ((await autoMemoryInstalled()) && enabled[AUTO_PLUGIN] !== false) return { state: "on" };
-  return { state: "available" };
+  const settings = await memorySettings();
+  if ((await autoMemoryInstalled()) && enabled[AUTO_PLUGIN] !== false) return { state: "on", settings };
+  return { state: "available", settings };
+}
+
+// The switches the page shows, and the config keys behind each.
+const SWITCHES = {
+  recall: ["recall_reminder", "recall_gate"],
+  conversations: ["sync_conversations"],
+  attachments: ["sync_attachments"],
+};
+
+/** The switches as config.md has them. Everything starts on; a key set to false stays off. */
+async function memorySettings() {
+  const text = await readFile(join(HARNESS_HOME, "config.md"), "utf8").catch(() => "");
+  const body = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "";
+  const off = (key) => /^(false|no|off|0)$/i.test(body.match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"))?.[1].trim() ?? "");
+  return Object.fromEntries(Object.entries(SWITCHES).map(([name, keys]) => [name, !keys.some(off)]));
+}
+
+/** What the page asked for, every switch on unless it says otherwise. Files go only with the conversation. */
+function chosenSettings(given) {
+  const settings = Object.fromEntries(Object.keys(SWITCHES).map((name) => [name, given?.[name] !== false]));
+  settings.attachments &&= settings.conversations;
+  return settings;
 }
 
 /** The actor conversations are filed under: the account's own, bound to the workspace. */
@@ -585,17 +608,18 @@ async function resolveActor(workspace) {
 }
 
 /**
- * Write the configuration the hooks read. One that another MemoryLake harness
- * already wrote keeps its workspace and actor, and every switch it sets.
+ * Write the configuration the hooks read, with the switches chosen on the
+ * page. One that another MemoryLake harness already wrote keeps its other
+ * settings.
  */
-async function writeHarnessConfig(workspace) {
+async function writeHarnessConfig(workspace, settings) {
   const path = join(HARNESS_HOME, "config.md");
   const text = await readFile(path, "utf8").catch(() => "");
   const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   let next;
   if (front) {
-    // Settings the user changed stay as they are. The workspace is the one
-    // just chosen on this page; the actor is kept only for the same
+    // Other settings stay as they are. The workspace is the one just chosen
+    // on this page; the actor is kept only for the same
     // workspace, since a new workspace or another account needs its own.
     let body = front[1];
     const value = (key) => body.match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"))?.[1].trim() || "";
@@ -606,15 +630,17 @@ async function writeHarnessConfig(workspace) {
     const actor = value("workspace") === workspace && value("actor") ? value("actor") : await resolveActor(workspace);
     set("workspace", workspace);
     set("actor", actor);
-    for (const key of ["sync_conversations", "recall_reminder", "recall_gate"]) {
-      if (!new RegExp(`^${key}:`, "m").test(body)) set(key, "true");
+    // The switches are the ones the user just left on or turned off.
+    for (const [name, keys] of Object.entries(SWITCHES)) {
+      for (const key of keys) set(key, String(settings[name]));
     }
     next = text.replace(front[0], () => `---\n${body}\n---`);
     if (next === text) return workspace;
   } else {
     const actor = await resolveActor(workspace);
-    next = ["---", "enabled: true", `workspace: ${workspace}`, `actor: ${actor}`, "sync_on_write: true",
-      "sync_conversations: true", "recall_reminder: true", "recall_gate: true", "status_line: true", "---", ""].join("\n");
+    const switches = Object.entries(SWITCHES).flatMap(([name, keys]) => keys.map((key) => `${key}: ${settings[name]}`));
+    next = ["---", "enabled: true", `workspace: ${workspace}`, `actor: ${actor}`, `sync_on_write: ${settings.conversations}`,
+      ...switches, "status_line: true", "---", ""].join("\n");
   }
   await mkdir(HARNESS_HOME, { recursive: true });
   await writeFile(`${path}.tmp`, next);
@@ -701,15 +727,21 @@ async function removeAutoMemory() {
   if ((await lstat(CLI_HOME).catch(() => null))?.isSymbolicLink()) await unlink(CLI_HOME).catch(() => {});
 }
 
-async function enableAutoMemory() {
+async function enableAutoMemory(given) {
   if (!workspaceId) return { ok: false, error: "no workspace was chosen" };
   const { state, reason } = await autoMemoryState();
   if (state === "plugin") return { ok: true, state };
   if (state === "unavailable") return { ok: false, error: `automatic memory is not available here (${reason})` };
+  const settings = chosenSettings(given);
   try {
-    const workspace = await writeHarnessConfig(workspaceId);
+    const workspace = await writeHarnessConfig(workspaceId, settings);
+    // Recall and conversation sync both off: the hooks would have nothing to do.
+    if (!settings.recall && !settings.conversations) {
+      await removeAutoMemory();
+      return { ok: true, state: "off", workspace, settings };
+    }
     await installAutoMemory();
-    return { ok: true, state: "on", workspace };
+    return { ok: true, state: "on", workspace, settings };
   } catch (error) {
     return { ok: false, error: String(error.message || error).slice(0, 300) };
   }
@@ -829,8 +861,8 @@ const handlers = {
     return { ok: true, ...(await autoMemoryState()) };
   },
 
-  async autoEnable() {
-    return enableAutoMemory();
+  async autoEnable({ settings } = {}) {
+    return enableAutoMemory(settings);
   },
 
   async finish() {
@@ -950,8 +982,8 @@ function page() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MemoryLake</title>
 <style>
-  :root { color-scheme: light dark; --bg: #fff; --card: #f5f5f7; --surface: #fff; --text: #1d1d1f; --muted: #6e6e73; --line: rgba(0,0,0,.1); --accent: #0071e3; --accent-text: #fff; --bad: #d70015; --ok: #34c759; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #000; --card: #1d1d1f; --surface: rgba(255,255,255,.04); --text: #f5f5f7; --muted: #a1a1a6; --line: rgba(255,255,255,.16); --accent: #2997ff; --bad: #ff6961; --ok: #30d158; } }
+  :root { color-scheme: light dark; --bg: #fff; --card: #f5f5f7; --surface: #fff; --text: #1d1d1f; --muted: #6e6e73; --line: rgba(0,0,0,.1); --fill: rgba(120,120,128,.2); --accent: #0071e3; --accent-text: #fff; --bad: #d70015; --ok: #34c759; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #000; --card: #1d1d1f; --surface: rgba(255,255,255,.04); --text: #f5f5f7; --muted: #a1a1a6; --line: rgba(255,255,255,.16); --fill: rgba(120,120,128,.36); --accent: #2997ff; --bad: #ff6961; --ok: #30d158; } }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 16px; background: var(--bg); color: var(--text); font: 15px/1.5 Inter, -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
   .logo { display: block; height: 24px; width: auto; margin: 0 auto 28px; }
@@ -992,6 +1024,45 @@ function page() {
   .summary div + div { border-top: 1px solid var(--line); }
   .summary dt { color: var(--muted); flex: none; }
   .summary dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+  /* Memory settings: one grouped card, a switch per feature. */
+  .group { margin: 0 0 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .row { position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .row + .row::before, .picks + .row::before { content: ""; position: absolute; top: 0; left: 58px; right: 0; border-top: 1px solid var(--line); }
+  .row .text { flex: 1; min-width: 0; }
+  .row .title { display: block; }
+  .row small { display: block; color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 1px; }
+  .icon { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); transition: color .2s, background-color .2s; }
+  .icon svg { width: 18px; height: 18px; }
+  .row:has(.switch:not(:checked)) .icon { color: var(--muted); background: var(--fill); }
+  .row:has(.switch:disabled) { cursor: default; }
+  .row:has(.switch:disabled) .text { opacity: .45; }
+  .switch { flex: none; appearance: none; -webkit-appearance: none; position: relative; width: 44px; height: 26px; margin: 0; border-radius: 13px; background: var(--fill); cursor: pointer; transition: background-color .2s; }
+  .switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08); transition: transform .22s cubic-bezier(.3,.7,.4,1); }
+  .switch:checked { background: var(--accent); }
+  .switch:checked::before { transform: translateX(18px); }
+  .switch:disabled { opacity: .45; cursor: default; }
+  .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .disclosure { display: flex; align-items: center; gap: 6px; width: 100%; padding: 0 14px 12px 58px; font: inherit; font-size: 13px; color: var(--accent); background: none; border: 0; cursor: pointer; text-align: left; }
+  .disclosure .count { color: var(--muted); }
+  .disclosure svg { width: 12px; height: 12px; margin-left: auto; color: var(--muted); transition: transform .22s ease; }
+  .disclosure[aria-expanded=true] svg { transform: rotate(90deg); }
+  .disclosure:disabled { visibility: hidden; height: 0; padding-bottom: 0; }
+  .picks { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .25s ease; }
+  .picks.open { grid-template-rows: 1fr; }
+  .picks > div { overflow: hidden; min-height: 0; }
+  .picks.open > div { overflow-y: auto; max-height: 232px; overscroll-behavior: contain; }
+  .pick { display: flex; gap: 10px; align-items: flex-start; padding: 8px 14px 8px 58px; cursor: pointer; }
+  .pick:last-child { padding-bottom: 14px; }
+  .pick span { min-width: 0; font-size: 14px; }
+  .pick small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .tick { flex: none; appearance: none; -webkit-appearance: none; position: relative; width: 18px; height: 18px; margin: 2px 0 0; border: 1.5px solid var(--fill); border-radius: 5px; background: transparent; cursor: pointer; transition: background-color .15s, border-color .15s; }
+  .tick:checked { border-color: var(--accent); background: var(--accent); }
+  .tick:checked::after { content: ""; position: absolute; left: 4.75px; top: 1.5px; width: 4px; height: 8px; border: solid #fff; border-width: 0 1.75px 1.75px 0; border-radius: 0 0 1px 0; transform: rotate(45deg); }
+  .tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row-error { margin: -4px 0 12px; padding: 0 4px; font-size: 13px; color: var(--bad); }
+  .row-error a { margin-left: 4px; }
+  #memory-note { margin: 0 0 20px; }
+  @media (prefers-reduced-motion: reduce) { .switch, .switch::before, .picks, .disclosure svg, .icon { transition: none; } }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -1046,29 +1117,16 @@ ${LOGO}
     </form>
   </section>
 
-  <section id="step-import" hidden>
-    <h1 data-t="importTitle"></h1>
-    <p class="sub" data-t="importIntro"></p>
-    <form id="import-form">
-      <div class="list" id="import-groups"></div>
-      <p class="error" id="import-error" role="alert" hidden></p>
-      <div class="stack">
-        <button type="submit" class="btn" id="import-button" data-t="importGo"></button>
-        <button type="button" class="btn secondary" id="import-skip" data-t="skip"></button>
-      </div>
-      <p class="note" id="import-quota" hidden><a id="quota-link" target="_blank" rel="noopener noreferrer" data-t="quotaLink"></a></p>
+  <section id="step-memory" hidden>
+    <h1 data-t="memoryTitle"></h1>
+    <p class="sub" data-t="memoryIntro"></p>
+    <form id="memory-form">
+      <div class="group" id="memory-options"></div>
+      <p class="row-error" id="import-error" role="alert" hidden><span></span><a id="quota-link" target="_blank" rel="noopener noreferrer" data-t="quotaLink" hidden></a></p>
+      <p class="note" id="memory-note"></p>
+      <p class="error" id="memory-error" role="alert" hidden></p>
+      <button type="submit" class="btn" id="memory-button" data-t="memoryGo"></button>
     </form>
-  </section>
-
-  <section id="step-auto" hidden>
-    <h1 data-t="autoTitle"></h1>
-    <p class="sub" data-t="autoIntro"></p>
-    <p class="error" id="auto-error" role="alert" hidden></p>
-    <div class="stack">
-      <button type="button" class="btn" id="auto-button" data-t="autoGo"></button>
-      <button type="button" class="btn secondary" id="auto-skip" data-t="skip"></button>
-    </div>
-    <p class="note" data-t="autoNote"></p>
   </section>
 
   <section id="step-done" hidden>
@@ -1098,20 +1156,25 @@ const TEXT = {
     useWorkspace: "Continue", saving: "Saving...", creating: "Creating...",
     doneTitle: "You're connected", doneIntro: "You can close this page and go back to WorkBuddy.",
     rowWorkspace: "Workspace", rowImport: "Imported", rowAuto: "Automatic memory",
-    autoOn: "On", autoPlugin: "On, via the MemoryLake plugin", autoOff: "Off",
+    autoPlugin: "On, via the MemoryLake plugin", autoOff: "Off", featureSep: ", ", sentenceSep: " ",
+    featRecall: "Recall", featConversations: "Conversations", featAttachments: "Files",
     files: " files", importFailed: " failed",
     lost: "This page lost contact with WorkBuddy. Reconnect MemoryLake from WorkBuddy.",
     refused: "MemoryLake did not accept this key. Check that it is complete and from app.memorylake.cn.",
-    importTitle: "Import existing memory?", importIntro: "Copy WorkBuddy's memory files on this computer into MemoryLake. Lines that look like passwords are skipped.",
-    importGo: "Import", importing: "Importing...", skip: "Skip",
-    importNone: "Select at least one item, or skip.",
+    memoryTitle: "Your memory", memoryIntro: "Everything is on. Turn off what you don't need.",
+    optRecall: "Recall before answering", optRecallDetail: "Searches MemoryLake first",
+    optConversations: "Save conversations", optConversationsDetail: "Your messages and the replies, not tool output",
+    optAttachments: "Save files you send", optAttachmentsDetail: "Documents and images, up to 20 MB each",
+    optAttachmentsNeeds: "Needs Save conversations",
+    optImport: "Import existing memory", optImportDetail: "WorkBuddy's memory files on this computer",
+    pickContent: "Choose what to import", pickNone: "Choose at least one item, or turn import off.",
+    noteStart: "Starts with your next new conversation.", noteImport: "Lines that look like passwords are never imported.",
+    pluginNote: "Automatic memory comes from the MemoryLake plugin.",
+    memoryGo: "Done", importing: "Importing...", applying: "Turning on...",
     kindProfile: "Your profile", kindAccount: "Account memory", kindGlobal: "Long-term memory",
     kindWorkspace: "Workspace memory: ", kindNotes: "Daily notes: ",
     updated: "updated ", removed: " lines skipped", stored: "will replace the copy in MemoryLake",
-    importQuota: "Your account is out of quota. Skip for now and import later.", quotaLink: "View plans",
-    autoTitle: "Turn on automatic memory?", autoIntro: "Checks MemoryLake before answering and saves each conversation after.",
-    autoNote: "Saves only your messages and the replies, from the next new conversation.",
-    autoGo: "Turn on", autoBusy: "Turning on...",
+    importQuota: "Out of quota, so import was turned off. You can import later.", quotaLink: "View plans",
   },
   zh: {
     title: "连接 MemoryLake", intro: "登录后，WorkBuddy 即可使用你的记忆。",
@@ -1128,20 +1191,25 @@ const TEXT = {
     useWorkspace: "继续", saving: "正在保存……", creating: "正在创建……",
     doneTitle: "已连接", doneIntro: "可以关闭此页面，回到 WorkBuddy。",
     rowWorkspace: "工作区", rowImport: "已导入", rowAuto: "自动记忆",
-    autoOn: "已开启", autoPlugin: "已开启（MemoryLake 套件）", autoOff: "未开启",
+    autoPlugin: "已开启（MemoryLake 套件）", autoOff: "未开启", featureSep: "、", sentenceSep: "",
+    featRecall: "查记忆", featConversations: "对话", featAttachments: "文件",
     files: " 个文件", importFailed: " 个失败",
     lost: "此页面已与 WorkBuddy 断开，请回到 WorkBuddy 重新连接。",
     refused: "MemoryLake 未接受这个 key，请确认它完整且来自 app.memorylake.cn。",
-    importTitle: "导入已有记忆？", importIntro: "把 WorkBuddy 在本机的记忆文件复制到 MemoryLake，疑似密码的内容会跳过。",
-    importGo: "导入", importing: "正在导入……", skip: "跳过",
-    importNone: "请至少选择一项，或点“跳过”。",
+    memoryTitle: "记忆设置", memoryIntro: "已全部开启，不需要的可以关掉。",
+    optRecall: "回答前先查记忆", optRecallDetail: "先在 MemoryLake 里搜索",
+    optConversations: "自动保存对话", optConversationsDetail: "你的消息和回复，不含工具输出",
+    optAttachments: "自动保存发送的文件", optAttachmentsDetail: "文档和图片，单个不超过 20 MB",
+    optAttachmentsNeeds: "需要先开启“自动保存对话”",
+    optImport: "导入已有记忆", optImportDetail: "WorkBuddy 在本机的记忆文件",
+    pickContent: "选择导入内容", pickNone: "请至少选择一项，或关闭导入。",
+    noteStart: "从下一个新对话开始生效。", noteImport: "疑似密码的内容不会导入。",
+    pluginNote: "自动记忆由 MemoryLake 套件提供。",
+    memoryGo: "完成", importing: "正在导入……", applying: "正在开启……",
     kindProfile: "个人档案", kindAccount: "账号记忆", kindGlobal: "长期记忆",
     kindWorkspace: "工作区记忆：", kindNotes: "每日笔记：",
     updated: "更新于 ", removed: " 行已跳过", stored: "将替换 MemoryLake 中的旧版本",
-    importQuota: "账号额度不足，暂时无法导入。可以先跳过，之后再导入。", quotaLink: "查看套餐",
-    autoTitle: "开启自动记忆？", autoIntro: "回答前先查 MemoryLake，对话后自动保存。",
-    autoNote: "只保存你的消息和回复，从下个新对话生效。",
-    autoGo: "开启", autoBusy: "正在开启……",
+    importQuota: "账号额度不足，已关闭导入，之后可以再导入。", quotaLink: "查看套餐",
   },
 };
 const t = TEXT[(navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en"];
@@ -1225,11 +1293,15 @@ function row(term, value, list = $("summary")) {
   div.append(dt, dd);
   list.append(div);
 }
+function features(settings = {}) {
+  const on = [settings.recall && t.featRecall, settings.conversations && t.featConversations, settings.attachments && t.featAttachments];
+  return on.filter(Boolean).join(t.featureSep) || t.autoOff;
+}
 async function finish(auto) {
   if (workspaceInUse) row(t.rowWorkspace, workspaceInUse.name);
   if (imported) row(t.rowImport, imported.imported + t.files + (imported.failed.length ? ", " + imported.failed.length + t.importFailed : ""));
   if (workspaceInUse || auto) {
-    row(t.rowAuto, !auto ? t.autoOff : auto.state === "plugin" ? t.autoPlugin : t.autoOn);
+    row(t.rowAuto, auto?.state === "plugin" ? t.autoPlugin : auto?.state === "on" ? features(auto.settings) : t.autoOff);
   }
   $("summary").hidden = !$("summary").children.length;
   show("step-done");
@@ -1245,33 +1317,168 @@ function describe(group) {
   return parts.join(" · ");
 }
 
-// With a workspace to import into, offer WorkBuddy's own memory files, if
-// this computer has any.
-async function offerImport(workspace) {
-  workspaceInUse = workspace || null;
-  if (!workspace) return finish();
-  const scan = await call("importScan");
-  if (!scan.ok || !scan.groups.length) return offerAuto();
-  for (const group of scan.groups) {
-    $("import-groups").append(choice("checkbox", "group", group.id, t[KIND[group.kind]] + group.label, describe(group), group.suggested));
-  }
-  show("step-import");
+// Line icons for the memory switches, drawn in the text colour of their tile.
+const ICONS = {
+  recall: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
+  conversations: '<path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17h-1A.5.5 0 0 1 4 16.5z"/>',
+  attachments: '<path d="M20 11.5l-7.9 7.9a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.65 1.65 0 0 1-2.35-2.35l7.6-7.6"/>',
+  import: '<path d="M12 4v10.5"/><path d="M7.5 10l4.5 4.5 4.5-4.5"/><path d="M4 15.5v2.5A2 2 0 0 0 6 20h12a2 2 0 0 0 2-2v-2.5"/>',
+};
+const CHEVRON = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>';
+
+function toggleRow(name, icon, title, detail, checked) {
+  const label = document.createElement("label");
+  label.className = "row";
+  const tile = document.createElement("span");
+  tile.className = "icon";
+  tile.setAttribute("aria-hidden", "true");
+  tile.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + icon + "</svg>";
+  const text = document.createElement("span");
+  text.className = "text";
+  const heading = document.createElement("span");
+  heading.className = "title";
+  heading.textContent = title;
+  const small = document.createElement("small");
+  small.textContent = detail;
+  text.append(heading, small);
+  const input = Object.assign(document.createElement("input"), { type: "checkbox", name, checked, className: "switch" });
+  input.setAttribute("role", "switch");
+  label.append(tile, text, input);
+  $("memory-options").append(label);
+  return { label, input, small };
 }
 
-// Last, automatic memory: offered when it can be installed, refreshed when an
-// earlier connect installed it, and only reported when the MemoryLake plugin
-// already provides it.
-async function offerAuto(result) {
-  imported = result || null;
-  const scan = await call("autoScan");
-  if (scan.state === "available") return show("step-auto");
-  if (scan.state === "plugin") return finish(scan);
-  if (scan.state === "on") {
-    const again = await call("autoEnable");
-    return finish(again.ok ? again : null);
-  }
-  finish();
+let memory = null;
+function importError(message, quota) {
+  const node = $("import-error");
+  node.firstChild.textContent = message || "";
+  $("quota-link").hidden = !(quota && CONSOLE);
+  node.hidden = !message;
 }
+
+// WorkBuddy's own memory files: one switch, and the files behind a
+// disclosure for whoever wants to choose.
+function addImport(groups) {
+  const toggle = toggleRow("import", ICONS.import, t.optImport, t.optImportDetail, true);
+  const button = document.createElement("button");
+  Object.assign(button, { type: "button", className: "disclosure" });
+  button.setAttribute("aria-expanded", "false");
+  button.setAttribute("aria-controls", "picks");
+  const label = document.createElement("span");
+  label.textContent = t.pickContent;
+  const count = document.createElement("span");
+  count.className = "count";
+  button.append(label, count);
+  button.insertAdjacentHTML("beforeend", CHEVRON);
+  const picks = document.createElement("div");
+  Object.assign(picks, { id: "picks", className: "picks", inert: true });
+  const inner = document.createElement("div");
+  for (const group of groups) {
+    const item = document.createElement("label");
+    item.className = "pick";
+    const input = Object.assign(document.createElement("input"), { type: "checkbox", name: "group", value: group.id, checked: group.suggested, className: "tick" });
+    const text = document.createElement("span");
+    text.textContent = t[KIND[group.kind]] + group.label;
+    const small = document.createElement("small");
+    small.textContent = describe(group);
+    text.append(small);
+    item.append(input, text);
+    inner.append(item);
+  }
+  picks.append(inner);
+  $("memory-options").append(button, picks);
+
+  const tally = () => {
+    const boxes = picks.querySelectorAll("input");
+    count.textContent = [...boxes].filter((box) => box.checked).length + "/" + boxes.length;
+  };
+  const expand = (open) => {
+    picks.classList.toggle("open", open);
+    picks.inert = !open;
+    button.setAttribute("aria-expanded", String(open));
+  };
+  button.addEventListener("click", () => expand(!picks.classList.contains("open")));
+  picks.addEventListener("change", () => { tally(); importError(""); });
+  toggle.input.addEventListener("change", () => {
+    button.disabled = !toggle.input.checked;
+    if (!toggle.input.checked) expand(false);
+    importError("");
+  });
+  tally();
+  memory.importing = { toggle, picks, expand };
+}
+
+// With a workspace to keep it in, show every memory feature this computer
+// can have, all on except what the user turned off on an earlier connect.
+async function openMemory(workspace) {
+  workspaceInUse = workspace || null;
+  if (!workspace) return finish();
+  const [imports, auto] = await Promise.all([call("importScan"), call("autoScan")]);
+  const groups = imports.ok ? imports.groups : [];
+  const canAuto = auto.ok && (auto.state === "available" || auto.state === "on");
+  const plugin = auto.ok && auto.state === "plugin" ? auto : null;
+  if (!groups.length && !canAuto) return finish(plugin);
+  memory = { canAuto, plugin, switches: null, importing: null };
+  if (canAuto) {
+    const on = auto.settings || {};
+    const sw = {
+      recall: toggleRow("recall", ICONS.recall, t.optRecall, t.optRecallDetail, on.recall !== false),
+      conversations: toggleRow("conversations", ICONS.conversations, t.optConversations, t.optConversationsDetail, on.conversations !== false),
+      attachments: toggleRow("attachments", ICONS.attachments, t.optAttachments, t.optAttachmentsDetail, on.attachments !== false),
+    };
+    // Files travel with the conversation: without it the switch rests, and
+    // comes back as it was when the conversation is turned on again.
+    let wanted = sw.attachments.input.checked;
+    const follow = () => {
+      const allowed = sw.conversations.input.checked;
+      if (!allowed && !sw.attachments.input.disabled) wanted = sw.attachments.input.checked;
+      sw.attachments.input.disabled = !allowed;
+      sw.attachments.input.checked = allowed && wanted;
+      sw.attachments.small.textContent = allowed ? t.optAttachmentsDetail : t.optAttachmentsNeeds;
+    };
+    sw.conversations.input.addEventListener("change", follow);
+    follow();
+    memory.switches = sw;
+  }
+  if (groups.length) addImport(groups);
+  $("memory-note").textContent = [canAuto && t.noteStart, plugin && t.pluginNote, groups.length && t.noteImport].filter(Boolean).join(t.sentenceSep);
+  show("step-memory");
+}
+
+$("memory-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = $("memory-button");
+  fail("memory-error", "");
+  const importing = memory.importing;
+  if (importing?.toggle.input.checked && !imported) {
+    const ids = [...importing.picks.querySelectorAll("input:checked")].map((box) => box.value);
+    if (!ids.length) { importing.expand(true); return importError(t.pickNone); }
+    busy(button, t.importing);
+    const result = await call("importRun", { ids });
+    busy(button);
+    if (!result.ok) {
+      if (!result.quota) return importError(result.error);
+      importing.toggle.input.checked = false;
+      importing.toggle.input.dispatchEvent(new Event("change"));
+      return importError(t.importQuota, true);
+    }
+    imported = result;
+  }
+  let auto = memory.plugin;
+  if (memory.canAuto) {
+    const sw = memory.switches;
+    busy(button, t.applying);
+    const result = await call("autoEnable", { settings: {
+      recall: sw.recall.input.checked,
+      conversations: sw.conversations.input.checked,
+      attachments: sw.attachments.input.checked,
+    } });
+    busy(button);
+    if (!result.ok) return fail("memory-error", result.error);
+    auto = result;
+  }
+  finish(auto);
+});
 
 // Pick a workspace or make a new one. The new one is the last choice, with
 // its name field shown only while it is picked.
@@ -1367,38 +1574,15 @@ $("workspace-form").addEventListener("submit", async (event) => {
     const created = await call("workspaceCreate", { name });
     busy(button);
     if (!created.ok) return fail("workspace-error", created.error);
-    return offerImport(created.workspace);
+    return openMemory(created.workspace);
   }
   busy(button, t.saving);
   const result = await call("workspace", { id });
   busy(button);
   if (!result.ok) return fail("workspace-error", result.error);
-  offerImport(form.workspaces.find((w) => w.id === id));
+  openMemory(form.workspaces.find((w) => w.id === id));
 });
 
-$("import-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const ids = new FormData(event.currentTarget).getAll("group");
-  if (!ids.length) return fail("import-error", t.importNone);
-  const button = $("import-button");
-  busy(button, t.importing); $("import-skip").disabled = true; fail("import-error", "");
-  const result = await call("importRun", { ids });
-  busy(button); $("import-skip").disabled = false;
-  $("import-quota").hidden = !(result.quota && CONSOLE);
-  if (!result.ok) return fail("import-error", result.quota ? t.importQuota : result.error);
-  offerAuto(result);
-});
-$("import-skip").addEventListener("click", () => offerAuto());
-
-$("auto-button").addEventListener("click", async () => {
-  const button = $("auto-button");
-  busy(button, t.autoBusy); $("auto-skip").disabled = true; fail("auto-error", "");
-  const result = await call("autoEnable");
-  busy(button); $("auto-skip").disabled = false;
-  if (!result.ok) return fail("auto-error", result.error);
-  finish(result);
-});
-$("auto-skip").addEventListener("click", () => finish());
 </script>
 </body>
 </html>`;

@@ -4,7 +4,7 @@
     "version": ">=18"
   },
   "env": {
-    "MEMORYLAKE_CONNECTOR_HOME": "$HOME/.workbuddy/connectors-marketplace/connectors/memorylake-cli",
+    "MEMORYLAKE_CONNECTOR_HOME": "$HOME/.workbuddy/connectors-marketplace/connectors/memorylake",
     "MEMORYLAKE_NO_SETUP": "1",
     "MEMORYLAKE_NO_SKILLS": "1"
   },
