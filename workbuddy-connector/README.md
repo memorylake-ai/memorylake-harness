@@ -413,23 +413,6 @@ MEMORYLAKE_CONFIG_DIR=/tmp/ml-config MEMORYLAKE_BASE_URL=http://127.0.0.1:18765 
   node memorylake/skills/memorylake-cli/scripts/login.mjs
 ```
 
-Show the connector in the real WorkBuddy app, next to every official one:
-
-```bash
-python3 dev/build-test-marketplace.py memorylake /tmp/ml-marketplace/connectors-config.zip
-(cd /tmp/ml-marketplace && python3 -m http.server 18766 --bind 127.0.0.1) &
-echo '{"connectorMarketplaceUrl":"http://127.0.0.1:18766/connectors-config.zip"}' > ~/.workbuddy/connectors/connector-marketplace.json
-```
-
-Restart WorkBuddy to make it read the override. (5.3.14 also re-read it
-every ten minutes; 5.11.3, which takes its catalog from a market API, was
-not seen to fetch it while running.) Delete
-`~/.workbuddy/connectors/connector-marketplace.json` to go back to the
-official index. Extra `KEY=VALUE` arguments to the build script are added to
-`cli.json`'s `env` in the zip only; `MEMORYLAKE_CONFIG_DIR=...` gives the
-connector a login state of its own, which lets a machine that is already
-logged in go through the sign-in page.
-
 ## Known gaps
 
 - **Reaching GitHub from mainland China.** The installer and the release
