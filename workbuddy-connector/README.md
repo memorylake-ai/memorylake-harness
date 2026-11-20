@@ -399,24 +399,22 @@ MEMORYLAKE_CONFIG_DIR=/tmp/ml-config MEMORYLAKE_BASE_URL=http://127.0.0.1:18765 
   node memorylake-cli/skills/memorylake-cli/scripts/login.mjs
 ```
 
-Try the connector in the real WorkBuddy app before it is published, for
-example on a colleague's Mac (it needs python3, and WorkBuddy opened once):
+Show the connector in the real WorkBuddy app, next to every official one:
 
 ```bash
-workbuddy-connector/dev/try-in-workbuddy.sh          # adds it to the list and restarts WorkBuddy
-workbuddy-connector/dev/try-in-workbuddy.sh --undo   # the official list again
+python3 dev/build-test-marketplace.py memorylake-cli /tmp/ml-marketplace/connectors-config.zip
+(cd /tmp/ml-marketplace && python3 -m http.server 18766 --bind 127.0.0.1) &
+echo '{"connectorMarketplaceUrl":"http://127.0.0.1:18766/connectors-config.zip"}' > ~/.workbuddy/connectors/connector-marketplace.json
 ```
 
-WorkBuddy 5.11.3 takes its connector list from a market API, which lists
-only published connectors. Started with `WORKBUDDY_CONNECTOR_MARKET_API=0`
-it reads the older marketplace index instead, which
-`~/.workbuddy/connectors/connector-marketplace.json` can point elsewhere. The
-script builds an index of the official connectors plus this one
-(`dev/build-test-marketplace.py`), serves it on `127.0.0.1:18766`, writes that
-file and restarts WorkBuddy with the variable set. The variable lasts for
-that launch: WorkBuddy reopened the usual way shows the official list (run
-the script again to come back). Extra `KEY=VALUE` arguments to the build
-script are added to `cli.json`'s `env` in the zip only.
+Restart WorkBuddy to make it read the override. (5.3.14 also re-read it
+every ten minutes; 5.11.3, which takes its catalog from a market API, was
+not seen to fetch it while running.) Delete
+`~/.workbuddy/connectors/connector-marketplace.json` to go back to the
+official index. Extra `KEY=VALUE` arguments to the build script are added to
+`cli.json`'s `env` in the zip only; `MEMORYLAKE_CONFIG_DIR=...` gives the
+connector a login state of its own, which lets a machine that is already
+logged in go through the sign-in page.
 
 ## Known gaps
 
