@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = join(here, "../../workbuddy-plugin");
-const target = join(here, "../memorylake-cli/skills/memorylake-cli/scripts/auto-memory");
+const target = join(here, "../memorylake/skills/memorylake-cli/scripts/auto-memory");
 
 export const MARKETPLACE = "memorylake-connector";
 export const PLUGIN = "memorylake-auto";

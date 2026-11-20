@@ -46,7 +46,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(mock.exitCode, null, "mock API did not start (is port 18765 taken?)");
 
-  const page = start(join(here, "../memorylake-cli/skills/memorylake-cli/scripts/login.mjs"), {
+  const page = start(join(here, "../memorylake/skills/memorylake-cli/scripts/login.mjs"), {
     HOME: join(root, "cli-home"), // the CLI's own credentials, away from the real ones
     USERPROFILE: join(root, "cli-home"),
     MEMORYLAKE_BIN: join(here, "cli-stub.mjs"),
@@ -80,7 +80,7 @@ try {
   const html = await (await fetch(url)).text();
   new Function(html.match(/<script>([\s\S]*)<\/script>/)[1]);
   assert.ok(!/name="endpoint"|id="endpoints"/.test(html), "the deployment choice is gone");
-  assert.ok(html.includes('id="step-import"'));
+  assert.ok(html.includes('id="step-memory"'));
 
   const login = await call("login", { apiKey: "sk-test-mock" });
   assert.equal(login.ok, true, JSON.stringify(login));

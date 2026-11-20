@@ -17,7 +17,7 @@ Nothing needs to be installed beforehand.
 | --- | --- | --- |
 | Plugin | [`workbuddy-plugin/`](../workbuddy-plugin/) | Automatic memory through hooks: search-first recall every turn, per-turn conversation sync |
 | MCP connector (`source: memorylake`) | the `memorylake-mcp` repository | Memory and library tools over MCP, cloud OAuth |
-| CLI connector (`source: memorylake-cli`) | this directory | The whole CLI surface on demand: memory, workspaces, projects, files, team and access |
+| CLI connector (`source: memorylake`) | this directory | The whole CLI surface on demand: memory, workspaces, projects, files, team and access |
 
 A connector has no hooks, so by itself the agent reaches for the CLI only
 when a skill triggers. `memorylake-cli-recall` asks it to search at the start
@@ -46,7 +46,7 @@ to be globally unique.
 workbuddy-connector/
 ├── README.md                    this file, not part of the package
 ├── dev/                         tools to test the package, not part of it
-└── memorylake-cli/              the package to submit
+└── memorylake/                  the package to submit
     ├── connector-meta.json      marketplace listing
     ├── cli.json                 install / upgrade / login / status / disconnect
     ├── icon.png
@@ -71,7 +71,7 @@ One section differs and has to be put back after a refresh: in
 hooks as well as the plugin's); it holds no commands.
 
 ```bash
-git -C ../../memorylake-cli archive v20261117 skills/memorylake-cli-memory skills/memorylake-cli-access | tar -x -C memorylake-cli
+git -C ../../memorylake-cli archive v20261117 skills/memorylake-cli-memory skills/memorylake-cli-access | tar -x -C memorylake
 ```
 
 The entry skill `memorylake-cli` starts from the same upstream file and
@@ -193,16 +193,25 @@ On the page the user:
    generated `--custom-id`). The workspace already in use is selected: the
    CLI's default, or after a logout the one in `config.md`. An account with
    no workspace is offered only a new one;
-3. is shown the WorkBuddy memory files found on this computer, grouped
-   (profile, account memory, each workspace's `MEMORY.md`, each workspace's
-   daily notes) with size, date, how many lines will be left out as
-   credentials, and whether MemoryLake already holds them. The long-term
-   files are ticked, daily notes are not. **Import selected** uploads them;
-   **Not now** skips. The step does not appear when no file is found or no
-   workspace was chosen;
-4. is asked whether to turn on automatic memory, with what it saves spelled
-   out. **Turn on automatic memory** installs it; **Not now** skips. See
-   [Automatic memory](#automatic-memory) for when the step appears.
+3. sees every memory feature, **all switched on**, and turns off what they
+   do not want, then **Done**:
+   - **Recall before answering** (`recall_reminder` and `recall_gate`),
+     **Save conversations** (`sync_conversations`) and **Save files you
+     send** (`sync_attachments`, resting while conversations are off,
+     since files only travel with the conversation). These are automatic
+     memory; see [Automatic memory](#automatic-memory) for when they show.
+     On a later connect they show as `config.md` has them, so a switch the
+     user turned off stays off.
+   - **Import existing memory**, when WorkBuddy memory files are found on
+     this computer. **Choose what to import** opens them, grouped (profile,
+     account memory, each workspace's `MEMORY.md`, each workspace's daily
+     notes) with size, date, how many lines will be left out as credentials,
+     and whether MemoryLake already holds them. The long-term files are
+     ticked, daily notes are not. An account out of quota turns the switch
+     off and says so; **Done** again carries on without it.
+
+   The step does not appear when no workspace was chosen, or when there is
+   neither a file to import nor automatic memory to set.
 
 The import runs `project get --by-custom-id` / `project create`,
 `library list` / `mkdir`, then per file `library upload --on-conflict
@@ -302,8 +311,13 @@ locations. The marketplace is added from a copy under
 directory is replaced when WorkBuddy updates the connector. Before that the
 page writes `~/.memorylake/harness/config.md`, the file the hooks read, with
 the workspace chosen on the page and the account's own actor (bound to the
-workspace if it was not). An existing configuration keeps its switches,
-gains any missing WorkBuddy keys, and takes the chosen workspace; its actor
+workspace if it was not), and the four switch keys set to what the page
+showed, `true` or `false`. Every switch starts on, `sync_attachments`
+included: where the plugin leaves attached files to an explicit opt-in,
+here the switch is in front of the user with its own line. With recall and
+conversation sync both off there is nothing for the hooks to do, so the
+plugin is uninstalled instead. An existing configuration keeps its other
+settings and takes the chosen workspace; its actor
 is kept only when the workspace did not change, so a reconnect to another
 workspace or account never writes to the old one. The other MemoryLake
 harnesses on the computer read the same file, so they follow the choice too.
@@ -315,10 +329,10 @@ connector's CLI even where an older `memorylake` is on the `PATH`.
 
 | The page finds | It does |
 | --- | --- |
-| The MemoryLake plugin enabled in WorkBuddy | installs nothing, and says the plugin provides automatic memory |
-| Automatic memory installed by an earlier connect | installs it again without asking, so a reconnect brings the current hooks |
-| No WorkBuddy CLI, no `bash`, or no `jq` | skips the step |
-| Otherwise | asks |
+| The MemoryLake plugin enabled in WorkBuddy | leaves the switches out, installs nothing, and says the plugin provides automatic memory |
+| Automatic memory installed by an earlier connect | shows the switches as they are; **Done** installs again, so a reconnect brings the current hooks |
+| No WorkBuddy CLI, no `bash`, or no `jq` | leaves the three switches out |
+| Otherwise | shows the three switches, on |
 
 **Never both.** If the user installs the MemoryLake plugin later, the
 connector's hooks see it enabled in WorkBuddy's `settings.json` and exit
@@ -378,8 +392,8 @@ a stand-in for the MemoryLake API so no real key is involved:
 
 ```bash
 node dev/mock-api.mjs &   # accepts the key sk-test-mock on port 18765
-SIM_URL_FILE=/tmp/ml-url node dev/wb-sim.mjs connect memorylake-cli /tmp/ml-packages \
-  MEMORYLAKE_CONNECTOR_HOME="$PWD/memorylake-cli" \
+SIM_URL_FILE=/tmp/ml-url node dev/wb-sim.mjs connect memorylake /tmp/ml-packages \
+  MEMORYLAKE_CONNECTOR_HOME="$PWD/memorylake" \
   MEMORYLAKE_CONFIG_DIR=/tmp/ml-config \
   MEMORYLAKE_BASE_URL=http://127.0.0.1:18765
 ```
@@ -396,25 +410,8 @@ as a build from source, name it in `MEMORYLAKE_BIN`:
 ```bash
 MEMORYLAKE_BIN=../../memorylake-cli/target/debug/memorylake \
 MEMORYLAKE_CONFIG_DIR=/tmp/ml-config MEMORYLAKE_BASE_URL=http://127.0.0.1:18765 \
-  node memorylake-cli/skills/memorylake-cli/scripts/login.mjs
+  node memorylake/skills/memorylake-cli/scripts/login.mjs
 ```
-
-Show the connector in the real WorkBuddy app, next to every official one:
-
-```bash
-python3 dev/build-test-marketplace.py memorylake-cli /tmp/ml-marketplace/connectors-config.zip
-(cd /tmp/ml-marketplace && python3 -m http.server 18766 --bind 127.0.0.1) &
-echo '{"connectorMarketplaceUrl":"http://127.0.0.1:18766/connectors-config.zip"}' > ~/.workbuddy/connectors/connector-marketplace.json
-```
-
-Restart WorkBuddy to make it read the override. (5.3.14 also re-read it
-every ten minutes; 5.11.3, which takes its catalog from a market API, was
-not seen to fetch it while running.) Delete
-`~/.workbuddy/connectors/connector-marketplace.json` to go back to the
-official index. Extra `KEY=VALUE` arguments to the build script are added to
-`cli.json`'s `env` in the zip only; `MEMORYLAKE_CONFIG_DIR=...` gives the
-connector a login state of its own, which lets a machine that is already
-logged in go through the sign-in page.
 
 ## Known gaps
 
@@ -468,9 +465,9 @@ logged in go through the sign-in page.
 
 ## Packaging
 
-Submit the `memorylake-cli/` directory, zipped, through
+Submit the `memorylake/` directory, zipped, through
 [open.workbuddy.cn](https://open.workbuddy.cn):
 
 ```bash
-cd workbuddy-connector && node dev/build-auto-memory.mjs --check && zip -r memorylake-cli.zip memorylake-cli -x '*.DS_Store'
+cd workbuddy-connector && node dev/build-auto-memory.mjs --check && zip -r memorylake.zip memorylake -x '*.DS_Store'
 ```

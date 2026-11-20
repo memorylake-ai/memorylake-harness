@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const login = join(here, "../memorylake-cli/skills/memorylake-cli/scripts/login.mjs");
+const login = join(here, "../memorylake/skills/memorylake-cli/scripts/login.mjs");
 const realBin = process.env.MEMORYLAKE_REAL_BIN || "memorylake";
 
 const root = mkdtempSync(join(tmpdir(), "ml-existing-test-"));
