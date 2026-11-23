@@ -4,14 +4,12 @@
     "version": ">=18"
   },
   "env": {
-    "MEMORYLAKE_CONNECTOR_HOME": "$HOME/.workbuddy/connectors-marketplace/connectors/memorylake",
-    "MEMORYLAKE_NO_SETUP": "1",
-    "MEMORYLAKE_NO_SKILLS": "1"
+    "MEMORYLAKE_CONNECTOR_HOME": "$HOME/.workbuddy/connectors-marketplace/connectors/memorylake"
   },
   "init": {
-    "darwin": "s=$(curl -fsSL https://raw.githubusercontent.com/memorylake-ai/memorylake-cli/main/scripts/install.sh) && printf '%s\\n' \"$s\" | MEMORYLAKE_INSTALL_DIR=\"$npm_config_prefix/bin\" sh",
-    "linux": "s=$(curl -fsSL https://raw.githubusercontent.com/memorylake-ai/memorylake-cli/main/scripts/install.sh) && printf '%s\\n' \"$s\" | MEMORYLAKE_INSTALL_DIR=\"$npm_config_prefix/bin\" sh",
-    "win32": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:MEMORYLAKE_INSTALL_DIR = $env:npm_config_prefix; irm https://raw.githubusercontent.com/memorylake-ai/memorylake-cli/main/scripts/install.ps1 | iex\""
+    "darwin": "npm install -g --force @memorylake/cli@20261123.0.0",
+    "linux": "npm install -g --force @memorylake/cli@20261123.0.0",
+    "win32": "npm.cmd install -g --force @memorylake/cli@20261123.0.0 && (if exist \"%npm_config_prefix%\\memorylake.exe\" del /f /q \"%npm_config_prefix%\\memorylake.exe\")"
   },
   "versionCheck": {
     "command": {
@@ -19,7 +17,7 @@
       "linux": "memorylake version",
       "win32": "memorylake version"
     },
-    "minVersion": "20261117",
+    "minVersion": "20261123",
     "versionPattern": "v(\\d{8})"
   },
   "auth": {
