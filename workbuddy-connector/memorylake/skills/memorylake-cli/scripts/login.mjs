@@ -482,16 +482,17 @@ async function runImport(ids) {
 //
 // A connector adds a CLI and skills, so by itself MemoryLake is searched and
 // written only when the model decides to. WorkBuddy runs hooks from plugins
-// only, so the page offers to install one: `auto-memory/`, the hooks of the
-// MemoryLake plugin for WorkBuddy without its commands and skill (generated
-// by dev/build-auto-memory.mjs). It is installed with the `codebuddy` CLI
+// only, so the page offers to install one: `auto-memory/`, the MemoryLake
+// plugin's hooks for WorkBuddy without its commands and skill, written in
+// Node so that they need nothing WorkBuddy does not bring (the plugin's own
+// need bash and jq). It is installed with the `codebuddy` CLI
 // that ships inside WorkBuddy, the same way WorkBuddy installs any plugin.
 // Where and how that CLI is started is not a documented interface (seen in
 // 5.11.3), so every failure here leaves the connection itself untouched.
 //
 // The MemoryLake plugin proper does the same job and more. When it is
 // enabled the page installs nothing, and the hooks installed here stand down
-// (their run.sh), so the two never both act on a turn.
+// (scripts/hook.mjs), so the two never both act on a turn.
 
 const AUTO_PACKAGE = join(dirname(fileURLToPath(import.meta.url)), "auto-memory");
 const AUTO_MARKETPLACE = "memorylake-connector";
@@ -509,7 +510,10 @@ const readJsonFile = (path) => readFile(path, "utf8").then(JSON.parse).catch(() 
 /** The `codebuddy` CLI inside the WorkBuddy that is running this command. */
 async function workbuddyCli() {
   const inside = join("app.asar.unpacked", "cli", "bin", "codebuddy");
-  const candidates = [process.env.MEMORYLAKE_WORKBUDDY_CLI];
+  // WorkBuddy names its own resources directory to the processes it starts,
+  // and a connector's commands inherit that environment (5.11.3).
+  const resources = process.env.WORKBUDDY_RESOURCES_PATH;
+  const candidates = [process.env.MEMORYLAKE_WORKBUDDY_CLI, resources && join(resources, inside)];
   if (process.platform !== "win32") {
     // Walk up to the app that started us; it may not live in /Applications.
     let pid = process.ppid;
@@ -556,10 +560,6 @@ async function autoMemoryState() {
   if (enabled[FULL_PLUGIN] === true) return { state: "plugin" };
   if (!existsSync(join(AUTO_PACKAGE, ".workbuddy-plugin", "marketplace.json"))) return { state: "unavailable", reason: "package" };
   if (!(await workbuddyCli())) return { state: "unavailable", reason: "workbuddy" };
-  // The hooks are shell scripts that read their input with jq.
-  for (const tool of ["bash", "jq"]) {
-    if ((await run(tool, ["--version"])).code !== 0) return { state: "unavailable", reason: tool };
-  }
   const settings = await memorySettings();
   if ((await autoMemoryInstalled()) && enabled[AUTO_PLUGIN] !== false) return { state: "on", settings };
   return { state: "available", settings };
@@ -728,8 +728,8 @@ async function installAutoMemory() {
   await rm(AUTO_COPY, { recursive: true, force: true });
   await mkdir(HARNESS_HOME, { recursive: true });
   await cp(AUTO_PACKAGE, AUTO_COPY, { recursive: true });
-  // WorkBuddy runs the hooks as programs. A package that travelled through a
-  // zip may have lost its executable bits, so set them again.
+  // The model runs bin/ml-recall as a program. A package that travelled
+  // through a zip may have lost its executable bits, so set them again.
   const plugin = join(AUTO_COPY, "memorylake-auto");
   for (const dir of [join(plugin, "scripts"), join(plugin, "bin")]) {
     for (const name of await entries(dir)) {

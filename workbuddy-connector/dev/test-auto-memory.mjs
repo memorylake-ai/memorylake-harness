@@ -7,7 +7,8 @@
 //   node dev/test-auto-memory.mjs
 //   MEMORYLAKE_WORKBUDDY_CLI=/path/to/cli/bin/codebuddy node dev/test-auto-memory.mjs
 //
-// Without a WorkBuddy to install with, only the generated plugin is checked.
+// Without a WorkBuddy to install with, nothing is tested; dev/test-hooks.mjs
+// covers the hooks themselves.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -18,14 +19,10 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const login = join(here, "../memorylake/skills/memorylake-cli/scripts/login.mjs");
 
-// The generated plugin must be what the MemoryLake plugin's hooks are today.
-const check = spawnSync(process.execPath, [join(here, "build-auto-memory.mjs"), "--check"], { encoding: "utf8" });
-assert.equal(check.status, 0, check.stderr);
-
 const codebuddy = process.env.MEMORYLAKE_WORKBUDDY_CLI
   || "/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy";
 if (!existsSync(codebuddy)) {
-  console.log("ok: generated plugin is current (no WorkBuddy here, install not tested)");
+  console.log("skipped: no WorkBuddy here, install not tested");
   process.exit(0);
 }
 
@@ -54,7 +51,7 @@ const config = join(home, ".memorylake/harness/config.md");
 const packaged = join(root, "package");
 cpSync(join(dirname(login), "auto-memory"), join(packaged, "auto-memory"), { recursive: true });
 cpSync(login, join(packaged, "login.mjs"));
-for (const file of ["scripts/run.sh", "scripts/session-start.sh", "scripts/prompt-submit.sh", "bin/ml-recall"]) {
+for (const file of ["scripts/hook.mjs", "bin/ml-recall"]) {
   chmodSync(join(packaged, "auto-memory/memorylake-auto", file), 0o644);
 }
 const loginCopy = join(packaged, "login.mjs");
@@ -113,15 +110,15 @@ try {
   // The installed hooks, run the way WorkBuddy runs them.
   const plugin = installed()[0].installPath;
   // PATH holds no `memorylake`; the link is what the hooks find.
-  const hook = (script, input) => spawnSync("bash", [join(plugin, "scripts/run.sh"), script], {
+  const hook = (name, input) => spawnSync(process.execPath, [join(plugin, "scripts/hook.mjs"), name], {
     input: JSON.stringify(input), encoding: "utf8",
     env: { ...env, PATH: process.env.PATH.split(":").filter((dir) => !existsSync(join(dir, "memorylake"))).join(":") },
   });
-  const session = hook("session-start.sh", { cwd: root, session_id: "s1" });
+  const session = hook("session-start", { cwd: root, session_id: "s1" });
   const context = JSON.parse(session.stdout).hookSpecificOutput.additionalContext;
   assert.match(context, /MemoryLake: connected \(workspace ws-1/, session.stdout + session.stderr);
   assert.ok(context.includes("memorylake-cli-recall skill") && !context.includes("/memorylake:"), "it points at the connector, not the plugin");
-  const prompt = hook("prompt-submit.sh", { cwd: root, session_id: "s1", prompt: "what do you know about me?" });
+  const prompt = hook("prompt-submit", { cwd: root, session_id: "s1", prompt: "what do you know about me?" });
   assert.ok(JSON.parse(prompt.stdout).hookSpecificOutput.additionalContext.includes("ml-recall"));
 
   // With the MemoryLake plugin enabled, these hooks stand down and the page
@@ -130,7 +127,7 @@ try {
   const both = readJson(settings);
   both.enabledPlugins["memorylake@memorylake"] = true;
   writeFileSync(settings, JSON.stringify(both, null, 2));
-  assert.equal(hook("prompt-submit.sh", { cwd: root, session_id: "s1", prompt: "hi" }).stdout, "");
+  assert.equal(hook("prompt-submit", { cwd: root, session_id: "s1", prompt: "hi" }).stdout, "");
   assert.deepEqual(await call("autoScan"), { ok: true, state: "plugin" });
   writeFileSync(settings, before);
 
