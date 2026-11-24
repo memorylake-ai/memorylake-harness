@@ -9,30 +9,39 @@
 // PreToolUse hook would block the tool. What went wrong goes to a log file
 // instead (<data dir>/logs/workbuddy-hooks.log).
 //
+// The two Stop hooks do only what is quick and local (queue the reply, note
+// where the session works) and leave the upload to `node hook.mjs run ...`,
+// started on its own (see inBackground in lib/common.mjs). Session start does
+// the same with `flush`, which sends whatever earlier sessions left queued.
+//
 // The MemoryLake plugin for WorkBuddy does the same job with hooks of its own. When
 // it is enabled these stand down; otherwise every turn would be reminded and
 // synced twice.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ASYNC_LINE, dataDir, mkdirp } from "./lib/common.mjs";
+import { ageSeconds, dataDir, inBackground, lock, mkdirp, readJson, recalledSession, rememberSession, sessionDir, stateDir } from "./lib/common.mjs";
 import { promptSubmit } from "./lib/prompt-submit.mjs";
 import { recallGate } from "./lib/recall-gate.mjs";
 import { sessionStart } from "./lib/session-start.mjs";
-import { syncAttachments } from "./lib/sync-attachments.mjs";
-import { syncTurn } from "./lib/sync-turn.mjs";
+import { attachmentsDue, attachmentsPending, syncAttachments } from "./lib/sync-attachments.mjs";
+import { queueTurn, syncTurn, turnPending } from "./lib/sync-turn.mjs";
 
 const HOOKS = {
   "session-start": sessionStart,
   "prompt-submit": promptSubmit,
   "recall-gate": recallGate,
-  // WorkBuddy ignores "async": true in hooks.json; it stops waiting for a
-  // hook only when the hook's FIRST stdout line is {"async": true}. Without
-  // it every turn's end waited for the upload (2.7 s to 16.6 s, measured).
-  "sync-turn": syncTurn,
-  "sync-attachments": syncAttachments,
 };
-const ASYNC = new Set(["sync-turn", "sync-attachments"]);
+
+// Stop hooks: the quick part, which says whether there is anything to
+// upload, and the upload itself.
+const STOP = {
+  "sync-turn": { due: queueTurn, upload: syncTurn, pending: turnPending, status: "sync.json" },
+  "sync-attachments": { due: attachmentsDue, upload: syncAttachments, pending: attachmentsPending, status: "attachments.json" },
+};
+
+// Sessions untouched this long are not retried by flush any more.
+const FLUSH_DAYS = 14;
 
 function log(name, error) {
   try {
@@ -58,19 +67,63 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** The upload of one Stop hook. A turn that ended meanwhile was refused the lock; its messages go too. */
+function run(job, sessionId) {
+  const stop = STOP[job];
+  if (!stop || !sessionId) return;
+  for (let round = 0; round < 3; round++) {
+    stop.upload(recalledSession(sessionId));
+    if (!stop.pending(sessionId)) break;
+    // Failed: the next turn or session tries again.
+    if (readJson(path.join(sessionDir(sessionId), stop.status))?.last_state !== "ok") break;
+  }
+}
+
+/** Send what earlier sessions left queued: their uploads were cut short, or failed. */
+function flush() {
+  const release = lock(path.join(stateDir(), "workbuddy-flush.lock"), 600);
+  if (!release) return;
+  const root = path.join(stateDir(), "workbuddy");
+  let sessions = [];
+  try {
+    sessions = fs.readdirSync(root);
+  } catch {}
+  for (const session of sessions) {
+    if (ageSeconds(path.join(root, session)) > FLUSH_DAYS * 86400) continue;
+    for (const [job, stop] of Object.entries(STOP)) {
+      try {
+        if (stop.pending(session)) stop.upload(recalledSession(session));
+      } catch (error) {
+        log(`flush ${job} ${session}`, error);
+      }
+    }
+  }
+  release();
+}
+
 const name = process.argv[2];
-const hook = HOOKS[name];
 try {
-  if (hook && !pluginEnabled()) {
+  if (pluginEnabled()) {
+    // Standing down.
+  } else if (HOOKS[name] || STOP[name]) {
     let input = {};
     try {
       const parsed = JSON.parse(await readStdin());
       if (parsed && typeof parsed === "object") input = parsed;
     } catch {}
-    if (ASYNC.has(name)) process.stdout.write(ASYNC_LINE + "\n");
-    const output = await hook(input);
-    if (output) process.stdout.write(JSON.stringify(output) + "\n");
-  } else if (!hook) {
+    if (HOOKS[name]) {
+      const output = await HOOKS[name](input);
+      if (output) process.stdout.write(JSON.stringify(output) + "\n");
+      if (name === "session-start" && fs.existsSync(path.join(stateDir(), "workbuddy"))) inBackground(["flush"]);
+    } else if (STOP[name].due(input)) {
+      rememberSession(input);
+      if (!inBackground(["run", name, input.session_id])) log(name, "could not start the upload");
+    }
+  } else if (name === "run") {
+    run(process.argv[3], process.argv[4]);
+  } else if (name === "flush") {
+    flush();
+  } else {
     log(name, "unknown hook");
   }
 } catch (error) {

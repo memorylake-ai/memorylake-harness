@@ -39,9 +39,12 @@ export function promptSubmit(input) {
   for (const name of fs.readdirSync(dir)) {
     if (name.startsWith("searched.") || name.startsWith("gated.")) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
   }
-  writeAtomic(path.join(dir, "turn.json"), JSON.stringify({ id: turnId }) + "\n");
+  // `sync` tells the Stop hook to queue the reply too. It cannot go by the
+  // outbox: a background upload may have sent this message already.
+  const sync = syncAllowed(config, cwd);
+  writeAtomic(path.join(dir, "turn.json"), JSON.stringify({ id: turnId, sync }) + "\n");
 
-  if (syncAllowed(config, cwd)) {
+  if (sync) {
     const message = { id: `wb:${turnId}:user`, side: "user", text: clip(prompt, 8000), timestamp: utcNow(), cwd };
     try {
       fs.appendFileSync(path.join(dir, "outbox.jsonl"), JSON.stringify(message) + "\n");

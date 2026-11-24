@@ -184,6 +184,35 @@ try {
   await call("finish");
   assert.equal(await new Promise((resolve) => page.on("exit", resolve)), 0);
 
+  // A connector update reaches a computer that is already connected, where
+  // WorkBuddy skips the sign-in page: the status command brings the hooks up
+  // to date on the side.
+  const ours = readFileSync(join(packaged, "auto-memory/memorylake-auto/scripts/hook.mjs"), "utf8");
+  const running = () => {
+    try {
+      return readFileSync(join(installed()[0].installPath, "scripts/hook.mjs"), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  writeFileSync(join(installed()[0].installPath, "scripts/hook.mjs"), "// an older release\n");
+  const status = spawnSync(process.execPath, [loginCopy, "--status"], { env, encoding: "utf8" });
+  assert.match(status.stdout, /Logged in: yes/, status.stderr);
+  const refreshLock = join(home, ".memorylake/harness/workbuddy-refresh.lock");
+  for (let waited = 0; running() !== ours || existsSync(refreshLock); waited += 200) {
+    if (waited > 60_000) {
+      const log = join(home, ".memorylake/harness/logs/workbuddy-hooks.log");
+      assert.fail(`the hooks were not brought up to date: ${existsSync(log) ? readFileSync(log, "utf8") : "nothing logged"}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  // Up to date: nothing installed again (an install takes a few seconds).
+  const reinstalled = installed()[0].installedAt;
+  spawnSync(process.execPath, [loginCopy, "--status"], { env, encoding: "utf8" });
+  await new Promise((resolve) => setTimeout(resolve, 8000));
+  assert.ok(!existsSync(refreshLock));
+  assert.equal(installed()[0].installedAt, reinstalled, "installed again although nothing changed");
+
   // Disconnecting takes the hooks out and the login the page made, and keeps
   // the shared configuration.
   const gone = spawnSync(process.execPath, [login, "--disconnect"], { env, encoding: "utf8" });
@@ -194,7 +223,7 @@ try {
   assert.ok(existsSync(config));
   assert.match(realCli("auth", "status").stdout, /Logged in: no/, "the login the page made is gone");
   assert.match(spawnSync(process.execPath, [login, "--status"], { env, encoding: "utf8" }).stdout, /Logged in: no/);
-  console.log("ok: install, hooks, stand-down, reconnect, workspace change, switches, disconnect");
+  console.log("ok: install, hooks, stand-down, reconnect, workspace change, switches, refresh, disconnect");
 } finally {
   for (const child of children) child.kill();
   rmSync(root, { recursive: true, force: true });
