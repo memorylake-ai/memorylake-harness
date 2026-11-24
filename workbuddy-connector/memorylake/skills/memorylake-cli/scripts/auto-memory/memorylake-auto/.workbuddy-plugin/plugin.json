@@ -1,7 +1,7 @@
 {
   "name": "memorylake-auto",
   "displayName": "MemoryLake automatic memory",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Automatic memory for the MemoryLake connector: a search-first reminder every turn and per-turn conversation sync",
   "author": {
     "name": "MemoryLake"

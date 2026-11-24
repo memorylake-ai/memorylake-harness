@@ -289,28 +289,35 @@ CLI that is still older for some reason gets the API key field alone.
 
 WorkBuddy runs hooks from plugins only, and the connector format has no place
 for them. So the page installs a plugin, `memorylake-auto@memorylake-connector`,
-which is the MemoryLake plugin for WorkBuddy reduced to its hooks and
-`ml-recall`: no commands and no skill, because the connector already installs
-the CLI, signs in, and ships the skills.
+which does what the MemoryLake plugin for WorkBuddy's hooks and `ml-recall`
+do: no commands and no skill, because the connector already installs the
+CLI, signs in, and ships the skills.
 
-**It is generated, never edited.** `dev/build-auto-memory.mjs` copies
-`workbuddy-plugin/scripts` and `bin` into `scripts/auto-memory/`, rewrites the
-few sentences that point at the plugin's commands and skill (each must match
-exactly once, or the build fails), and routes every hook through a `run.sh` of
-the connector's own. `--check` fails when the copy is out of date, and
-`dev/test-auto-memory.mjs` runs it first. The plugin itself is not changed by
-any of this and stays a product of its own.
+**It is written in Node, not copied from the plugin.** The plugin's hooks are
+bash scripts that need `jq` (and `perl`, `git`, `shasum`). A connector is
+installed with one click, often on Windows, on a computer that may have none
+of them; WorkBuddy always has Node for a connector that declares
+`runtime: node`. So `scripts/auto-memory/memorylake-auto/` is a port to Node
+of `workbuddy-plugin/scripts` and `bin`, using Node's own modules only: one
+entry point, `scripts/hook.mjs <hook>`, with the hooks in `scripts/lib/`, and
+`bin/ml-recall` (plus `ml-recall.cmd` for a Windows shell that is not Git
+Bash). It reads a repository's remotes from `.git` itself instead of running
+git, and names a project exactly as the bash hooks do (on Windows, a folder
+with no remote is spelled the way Git Bash spells it), so both meet in one
+MemoryLake project. A change to the plugin's hooks has to be made here too,
+by hand. `dev/test-hooks.mjs` runs every hook and `ml-recall` against a
+stand-in CLI with nothing on `PATH` but Node.
 
 ```bash
-node dev/build-auto-memory.mjs           # after any change under workbuddy-plugin/
-node dev/build-auto-memory.mjs --check
+node dev/test-hooks.mjs
 ```
 
 **Installing.** The page uses the `codebuddy` CLI that ships inside WorkBuddy
 (`…/app.asar.unpacked/cli/bin/codebuddy plugin marketplace add` and
-`plugin install`, with `CODEBUDDY_FORCE_LITE_WB_BUNDLE=1`), found by walking
-up to the app that started the command and then in the usual install
-locations. The marketplace is added from a copy under
+`plugin install`, with `CODEBUDDY_FORCE_LITE_WB_BUNDLE=1`), found under
+`WORKBUDDY_RESOURCES_PATH`, which WorkBuddy sets for the processes it starts
+and a connector's commands inherit; failing that by walking up to the app
+that started the command, and then in the usual install locations. The marketplace is added from a copy under
 `~/.memorylake/harness/workbuddy-auto-memory/`, because the connector's own
 directory is replaced when WorkBuddy updates the connector. Before that the
 page writes `~/.memorylake/harness/config.md`, the file the hooks read, with
@@ -326,8 +333,9 @@ is kept only when the workspace did not change, so a reconnect to another
 workspace or account never writes to the old one. The other MemoryLake
 harnesses on the computer read the same file, so they follow the choice too.
 In WorkBuddy 5.11.3 a hook's `PATH` does not include the directory
-connectors install into, so `run.sh` puts it first: the hooks run the
-connector's CLI even where an older `memorylake` is on the `PATH`.
+connectors install into, so the hooks look there first: they run the
+connector's CLI even where an older `memorylake` is on the `PATH`. They run
+the binary behind npm's `memorylake` launcher directly, never a `.cmd`.
 
 **When the step appears.**
 
@@ -335,12 +343,12 @@ connector's CLI even where an older `memorylake` is on the `PATH`.
 | --- | --- |
 | The MemoryLake plugin enabled in WorkBuddy | leaves the switches out, installs nothing, and says the plugin provides automatic memory |
 | Automatic memory installed by an earlier connect | shows the switches as they are; **Done** installs again, so a reconnect brings the current hooks |
-| No WorkBuddy CLI, no `bash`, or no `jq` | leaves the three switches out |
+| No WorkBuddy CLI | leaves the three switches out |
 | Otherwise | shows the three switches, on |
 
 **Never both.** If the user installs the MemoryLake plugin later, the
 connector's hooks see it enabled in WorkBuddy's `settings.json` and exit
-before doing anything (`run.sh`), so a turn is never reminded or synced
+before doing anything (`scripts/hook.mjs`), so a turn is never reminded or synced
 twice.
 
 **Disconnecting** runs `login.mjs --disconnect`: it uninstalls the plugin,
@@ -446,9 +454,13 @@ MEMORYLAKE_CONFIG_DIR=/tmp/ml-config MEMORYLAKE_BASE_URL=http://127.0.0.1:18765 
 - **Automatic memory leans on WorkBuddy internals.** Where the bundled
   `codebuddy` CLI lives and how it is started are not documented interfaces
   (read from 5.11.3 on macOS). When it cannot be found or fails, the step is
-  skipped or reports the error, and the connection itself is unaffected. The
-  Windows location is a guess and untested. The hooks are shell scripts that
-  need `bash` and `jq`, as the plugin's do.
+  skipped or reports the error, and the connection itself is unaffected.
+  `WORKBUDDY_RESOURCES_PATH` was read from the source and seen on macOS only.
+- **The hooks have not run in WorkBuddy on Windows.** `dev/test-hooks.mjs`
+  passes with only Node on `PATH`, but WorkBuddy itself starting them
+  (`node "${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs" …` under its bundled Git
+  Bash, or PowerShell where that is turned off) and putting its own Node on
+  the hook's `PATH` were read from the source, not seen.
 - **Automatic memory was seen working in the app once, with a probe.** On
   WorkBuddy 5.11.3 (macOS), a plugin installed this way while the app was
   running had its `SessionStart`, `UserPromptSubmit` and `Stop` hooks fire in
@@ -473,5 +485,5 @@ Submit the `memorylake/` directory, zipped, through
 [open.workbuddy.cn](https://open.workbuddy.cn):
 
 ```bash
-cd workbuddy-connector && node dev/build-auto-memory.mjs --check && zip -r memorylake.zip memorylake -x '*.DS_Store'
+cd workbuddy-connector && node dev/test-hooks.mjs && zip -r memorylake.zip memorylake -x '*.DS_Store'
 ```

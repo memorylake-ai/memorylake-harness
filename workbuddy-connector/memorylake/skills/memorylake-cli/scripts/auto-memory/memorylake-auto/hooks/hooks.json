@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run.sh session-start.sh",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" session-start",
             "timeout": 10
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run.sh prompt-submit.sh",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" prompt-submit",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run.sh recall-gate.sh",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" recall-gate",
             "timeout": 5
           }
         ]
@@ -39,14 +39,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run.sh sync-turn.sh",
-            "async": true,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" sync-turn",
             "timeout": 180
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run.sh sync-attachments.sh",
-            "async": true,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" sync-attachments",
             "timeout": 180
           }
         ]
