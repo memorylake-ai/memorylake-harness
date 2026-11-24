@@ -31,7 +31,8 @@ import { execFile, spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
-import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -658,6 +659,32 @@ async function cliRelease(path) {
 }
 
 /**
+ * The binary behind the `memorylake` found on PATH. WorkBuddy installs the CLI
+ * from npm (@memorylake/cli), where that name is a small Node launcher and the
+ * binary sits in the package npm picked for this machine. The launcher on its
+ * own is no CLI, so it is the binary that gets copied. Any other install is
+ * the binary already.
+ */
+async function cliBinary(found) {
+  if (!found) return "";
+  const exe = process.platform === "win32" ? "memorylake.exe" : "memorylake";
+  // Unix: a link to the launcher. Windows: shims next to node_modules.
+  const launchers = [
+    await realpath(found).catch(() => found),
+    join(dirname(found), "node_modules", "@memorylake", "cli", "bin", "memorylake.js"),
+  ];
+  for (const launcher of launchers) {
+    if (!launcher.endsWith("memorylake.js") || !existsSync(launcher)) continue;
+    try {
+      return createRequire(launcher).resolve(`@memorylake/cli-${process.platform}-${process.arch}/bin/${exe}`);
+    } catch {
+      return "";
+    }
+  }
+  return found;
+}
+
+/**
  * Leave the CLI this connector uses (WorkBuddy keeps it in a directory of its
  * own) at CLI_HOME too, so everything on the computer runs one release:
  * copied there when nothing is, and replacing an older release. A newer
@@ -666,7 +693,7 @@ async function cliRelease(path) {
  */
 async function updateCli() {
   const found = await run(process.platform === "win32" ? "where" : "which", [CLI]);
-  const source = found.code === 0 ? found.stdout.split(/\r?\n/)[0].trim() : "";
+  const source = await cliBinary(found.code === 0 ? found.stdout.split(/\r?\n/)[0].trim() : "");
   if (!source || source === CLI_HOME) return;
   const release = await cliRelease(source);
   if (!release) return;

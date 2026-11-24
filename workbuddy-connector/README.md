@@ -114,8 +114,8 @@ again in 5.11.3):
 | Step | WorkBuddy does | `cli.json` |
 | --- | --- | --- |
 | Installed? | `which` on the first word of the `auth` command | that word is `memorylake` |
-| Install | runs `init` if not installed | the CLI's own installer, pointed at WorkBuddy's tools directory |
-| Version | runs `versionCheck`; below `minVersion` it runs `init` again | reads the date tag `v20261117` as one number |
+| Install | runs `init` if not installed | `npm install -g` of `@memorylake/cli` into WorkBuddy's tools directory |
+| Version | runs `versionCheck`; below `minVersion` it runs `init` again | reads the date tag `v20261123` as one number |
 | Logged in? | runs `status`, matches `statusMatch`; a match skips the sign-in page | `login.mjs --status`, `Logged in: yes` |
 | Log in | runs `auth`, opens the first URL it prints that contains `authUrlDomain`, waits for the process to exit | `scripts/login.mjs` |
 | Done? | polls `status` every 3 seconds for up to 5 minutes | |
@@ -129,12 +129,16 @@ Why each piece of `cli.json` is the way it is:
   on `PATH` for these commands and for the agent's shell. `init` installs the
   CLI there (`$npm_config_prefix/bin`), so it is found everywhere without
   touching the user's shell profile. Node also runs the sign-in page.
-- **`init`** fetches the installer into a variable before running it, because
-  a plain `curl | sh` exits 0 when the download fails and WorkBuddy would
-  take that for a finished install. `MEMORYLAKE_NO_SETUP` skips the
-  installer's guided login, which needs a terminal. `MEMORYLAKE_NO_SKILLS`
-  stops it from writing skills into Claude Code, Codex and other agents on
-  the machine: a WorkBuddy user did not ask for that.
+- **`init`** installs the CLI from npm (`@memorylake/cli`, the release
+  binaries as npm packages). WorkBuddy points npm at a registry mirror it can
+  reach (Tencent, npmmirror, Huawei, then npmjs.org), so the install does not
+  depend on GitHub, which is slow or blocked for many users in mainland
+  China. The version is pinned to the release this package was tested with;
+  keep it at or above `versionCheck.minVersion`. `--force` lets npm replace
+  the binary an earlier version of this connector put in the same place with
+  the CLI's own installer; without it npm stops with `EEXIST`. On Windows
+  that older binary is `memorylake.exe`, which would win over npm's
+  `memorylake.cmd`, so it is deleted once npm has succeeded.
 - **`auth`** starts with `memorylake version` so that its first word is the
   CLI. Were it `node`, WorkBuddy would find Node, conclude the CLI was
   installed, and never run `init`.
