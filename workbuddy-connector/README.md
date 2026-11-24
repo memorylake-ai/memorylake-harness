@@ -306,7 +306,10 @@ git, and names a project exactly as the bash hooks do (on Windows, a folder
 with no remote is spelled the way Git Bash spells it), so both meet in one
 MemoryLake project. A change to the plugin's hooks has to be made here too,
 by hand. `dev/test-hooks.mjs` runs every hook and `ml-recall` against a
-stand-in CLI with nothing on `PATH` but Node.
+stand-in CLI with nothing on `PATH` but Node, including a turn whose
+process kills its whole process group (Unix) or tree (Windows, with the hook
+under Git Bash) while the upload is still running, and a session start that
+sends what an earlier session left.
 
 ```bash
 node dev/test-hooks.mjs
@@ -337,6 +340,22 @@ connectors install into, so the hooks look there first: they run the
 connector's CLI even where an older `memorylake` is on the `PATH`. They run
 the binary behind npm's `memorylake` launcher directly, never a `.cmd`.
 
+**Uploads run on their own.** WorkBuddy 5.11.3 runs each turn in a process
+of its own and ends it about a second after the turn (SIGTERM). On the way
+out that process kills every hook still running, children included
+(`killAllHooksSync`), and a hook that answered `{"async": true}` is no
+exception: it stays on the list until it exits. An upload started by a Stop
+hook was killed every time, with the messages left in the outbox. So the
+two Stop hooks only do what is quick and local (queue the reply, note the
+session's folder and transcript in `session.json`), start
+`node hook.mjs run <hook> <session>` detached, and return within
+milliseconds. Once the hook has exited, that process is no hook's child, so
+nothing WorkBuddy kills reaches it; it runs on the Node that ran the hook.
+What it could not send stays queued, and goes with the session's next turn
+or when any session starts: SessionStart starts `node hook.mjs flush` the
+same way, which sends what sessions of the last 14 days left. The per-session
+locks keep two runs from sending the same messages.
+
 **When the step appears.**
 
 | The page finds | It does |
@@ -345,6 +364,18 @@ the binary behind npm's `memorylake` launcher directly, never a `.cmd`.
 | Automatic memory installed by an earlier connect | shows the switches as they are; **Done** installs again, so a reconnect brings the current hooks |
 | No WorkBuddy CLI | leaves the three switches out |
 | Otherwise | shows the three switches, on |
+
+**Keeping up to date.** A computer that is already connected never sees the
+page again: WorkBuddy updates the connector, the status command says
+`Logged in: yes`, and the page, where the hooks and the CLI copy are
+installed, is skipped. So when the status command finds the login it starts
+`login.mjs --refresh` on its own (WorkBuddy gives `status` ten seconds, and
+an install takes a few), which installs the hooks again when the installed
+files differ from the ones in the connector, and replaces an older CLI copy
+at `~/.memorylake/bin`. Uninstalling leaves a plugin's files in WorkBuddy's
+cache, and installing the same version takes them from there, so every
+install first deletes this plugin's cache directory. Failures go to
+`workbuddy-hooks.log`.
 
 **Never both.** If the user installs the MemoryLake plugin later, the
 connector's hooks see it enabled in WorkBuddy's `settings.json` and exit
@@ -382,7 +413,8 @@ node dev/test-import.mjs      # MEMORYLAKE_REAL_BIN=/path/to/memorylake for a pa
 Automatic memory has one too. It needs a WorkBuddy on the computer, whose
 bundled CLI installs the plugin into a temporary configuration directory, not
 the real one. It then runs the installed hooks the way WorkBuddy does, checks
-that they stand down when the MemoryLake plugin is enabled, reconnects, and
+that they stand down when the MemoryLake plugin is enabled, reconnects,
+checks that the status command brings outdated hooks up to date, and
 disconnects:
 
 ```bash

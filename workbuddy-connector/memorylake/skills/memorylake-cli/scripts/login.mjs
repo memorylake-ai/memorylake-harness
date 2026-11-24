@@ -24,6 +24,7 @@
 //
 // `login.mjs --status` and `login.mjs --disconnect` serve no page: they are
 // the connector's status and disconnect commands (see the end of the file).
+// `login.mjs --refresh` is started by the status command, on its own.
 //
 // No dependencies, Node 18+.
 
@@ -91,10 +92,11 @@ function failureText(result, secret) {
 /** Whether a failed login was the server refusing the key, not a network fault. */
 const keyRefused = (result) => /UNAUTHORIZE|\b401\b/.test(result.stderr + result.stdout);
 
-// `--disconnect` and `--status` serve no page; see further down.
+// `--disconnect`, `--status` and `--refresh` serve no page; see further down.
 const DISCONNECT = process.argv.includes("--disconnect");
 const STATUS = process.argv.includes("--status");
-const PAGE = !DISCONNECT && !STATUS;
+const REFRESH = process.argv.includes("--refresh");
+const PAGE = !DISCONNECT && !STATUS && !REFRESH;
 
 // Browser login arrived in the CLI after v20261102; older ones only take a key.
 const browserLoginSupported = PAGE && await cli(["auth", "login", "--help"]).then(
@@ -725,6 +727,9 @@ async function installAutoMemory() {
   // Start clean, so a reconnect brings the hooks that came with this connector.
   await workbuddyPlugin(codebuddy, ["uninstall", AUTO_PLUGIN]);
   await workbuddyPlugin(codebuddy, ["marketplace", "remove", AUTO_MARKETPLACE]);
+  // Uninstalling leaves the plugin's files in WorkBuddy's cache, and an
+  // install of the same version takes them from there (5.11.3).
+  await rm(join(WORKBUDDY_HOME, "plugins", "cache", AUTO_MARKETPLACE, AUTO_PLUGIN.split("@")[0]), { recursive: true, force: true });
   await rm(AUTO_COPY, { recursive: true, force: true });
   await mkdir(HARNESS_HOME, { recursive: true });
   await cp(AUTO_PACKAGE, AUTO_COPY, { recursive: true });
@@ -752,6 +757,55 @@ async function removeAutoMemory() {
   // Earlier versions linked the CLI there; a link into the connector would
   // dangle once it is gone. A copy is a CLI like any other, and stays.
   if ((await lstat(CLI_HOME).catch(() => null))?.isSymbolicLink()) await unlink(CLI_HOME).catch(() => {});
+}
+
+/** The files under a directory and their contents, by relative path. */
+async function tree(dir, prefix = "") {
+  const files = new Map();
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      for (const [name, content] of await tree(path, `${prefix}${entry.name}/`)) files.set(name, content);
+    } else {
+      files.set(prefix + entry.name, await readFile(path).catch(() => null));
+    }
+  }
+  return files;
+}
+
+/** True when the hooks WorkBuddy runs are not the ones that came with this connector. */
+async function autoMemoryOutdated() {
+  const record = (await readJsonFile(join(WORKBUDDY_HOME, "plugins", "installed_plugins.json")))?.plugins?.[AUTO_PLUGIN]?.[0];
+  if (!record?.installPath) return false;
+  // WorkBuddy adds files of its own there (.in_use/<pid>); only ours are compared.
+  const [running, bundled] = await Promise.all([tree(record.installPath), tree(join(AUTO_PACKAGE, "memorylake-auto"))]);
+  for (const [name, content] of bundled) {
+    if (!content || !running.get(name)?.equals(content)) return true;
+  }
+  return false;
+}
+
+/**
+ * Bring what an earlier connect installed up to this connector's release:
+ * the hooks, and the CLI copy the hooks fall back on. WorkBuddy updates a
+ * connector without opening its sign-in page again (the status command says
+ * it is connected), and the sign-in page is where both are installed.
+ */
+async function refresh() {
+  const lockDir = join(HARNESS_HOME, "workbuddy-refresh.lock");
+  await mkdir(HARNESS_HOME, { recursive: true });
+  try {
+    await mkdir(lockDir);
+  } catch {
+    const age = Date.now() - ((await stat(lockDir).catch(() => null))?.mtimeMs ?? 0);
+    if (age < 300_000) return;
+  }
+  try {
+    if ((await autoMemoryState()).state === "on" && (await autoMemoryOutdated())) await installAutoMemory();
+    await updateCli();
+  } finally {
+    await rm(lockDir, { recursive: true, force: true });
+  }
 }
 
 async function enableAutoMemory(given) {
@@ -787,7 +841,26 @@ if (STATUS) {
   const result = await cli(["auth", "status"]);
   process.stdout.write(result.stdout);
   process.stderr.write(result.stderr);
+  // Connected: bring the hooks and the CLI copy up to date, on the side.
+  // WorkBuddy gives this command ten seconds, and an install takes a few.
+  if (result.code === 0 && /Logged in: yes/.test(result.stdout)) {
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "--refresh"], {
+      detached: true, stdio: "ignore", windowsHide: true, cwd: tmpdir(), env: process.env,
+    });
+    child.on("error", () => {});
+    child.unref();
+  }
   process.exit(result.code < 0 ? 127 : result.code);
+}
+
+if (REFRESH) {
+  await refresh().catch(async (error) => {
+    // Nobody sees this command's output; the hooks' log is where to look.
+    const logs = join(HARNESS_HOME, "logs");
+    await mkdir(logs, { recursive: true }).catch(() => {});
+    await writeFile(join(logs, "workbuddy-hooks.log"), `${new Date().toISOString()} refresh: ${error?.stack || error}\n`, { flag: "a" }).catch(() => {});
+  });
+  process.exit(0);
 }
 
 // Disconnecting removes what the connector added. The login goes too only if

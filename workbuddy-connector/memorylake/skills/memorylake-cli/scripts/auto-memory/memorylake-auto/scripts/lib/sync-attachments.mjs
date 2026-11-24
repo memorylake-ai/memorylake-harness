@@ -1,4 +1,5 @@
-// Stop (async): upload the files the user attached this turn to MemoryLake.
+// Stop: upload the files the user attached this turn to MemoryLake. Runs in
+// a process of its own, as sync-turn's upload does (see inBackground).
 //
 // Off unless the config says `sync_attachments: true` (attachmentsAllowed).
 // Each file goes into a per-project Library folder and is imported into the
@@ -72,6 +73,22 @@ function scan(text, cwd) {
   }
   return found;
 }
+
+/** True when the background run has anything to do for this Stop. */
+export function attachmentsDue(input) {
+  const cwd = input.cwd || process.cwd();
+  const config = loadConfig(cwd);
+  if (!config || !input.session_id) return false;
+  const dir = sessionDir(input.session_id);
+  const queued = hasContent(path.join(dir, "attachments.jsonl")) || hasContent(path.join(dir, "attachments.draining"));
+  // Turned off: only a queue left from before needs clearing.
+  if (!attachmentsAllowed(config, cwd)) return queued;
+  return queued || Boolean(input.transcript_path && isFile(input.transcript_path));
+}
+
+/** True when files are waiting in the session's queue. */
+export const attachmentsPending = (sessionId) =>
+  ["attachments.jsonl", "attachments.draining"].some((name) => hasContent(path.join(sessionDir(sessionId), name)));
 
 export function syncAttachments(input) {
   const cwd = input.cwd || process.cwd();

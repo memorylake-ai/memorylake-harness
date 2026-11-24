@@ -1,4 +1,8 @@
-// Stop (async): append the finished turn to a MemoryLake conversation.
+// Stop: append the finished turn to a MemoryLake conversation.
+//
+// In two parts. The hook itself only queues the reply (queueTurn); the
+// upload (syncTurn) runs in a process of its own (see inBackground), since
+// WorkBuddy kills whatever a hook leaves running soon after the turn.
 //
 // One MemoryLake conversation per WorkBuddy session (custom id
 // workbuddy:<session_id>); the server distills memories from it. What goes
@@ -15,7 +19,8 @@
 //     so a retry never duplicates it.
 //
 // Messages that did not land stay in the session's outbox and go out with
-// the next turn; the outcome is recorded in sync.json.
+// the next turn, or when the next session starts (flush in hook.mjs); the
+// outcome is recorded in sync.json.
 //
 // The conversation is filed under the project of the folder the session
 // works in, by the rule every harness uses (git remote, else path), so all
@@ -36,6 +41,44 @@ const parse = (line) => {
   }
 };
 
+const outboxes = (dir) => [path.join(dir, "outbox.jsonl"), path.join(dir, "outbox.draining")];
+
+/** True when the session has messages waiting to go out. */
+export const turnPending = (sessionId) => outboxes(sessionDir(sessionId)).some(hasContent);
+
+/**
+ * The hook's part: put the assistant's reply in the outbox, next to the
+ * user's message prompt-submit put there. True when there is anything to send.
+ */
+export function queueTurn(input) {
+  const sessionId = input.session_id;
+  if (!sessionId || !loadConfig(input.cwd || process.cwd())) return false;
+  const dir = sessionDir(sessionId);
+  const [outbox, draining] = outboxes(dir);
+  const pending = () => hasContent(outbox) || hasContent(draining);
+  const queued = () => readText(outbox) + readText(draining);
+
+  // prompt-submit says whether this turn is synced. Not by looking at the
+  // outbox: the user's message may be on its way already, sent by a
+  // background run (a flush) while the model was still answering. A turn.json
+  // from before that field: the old rule, an empty outbox means no sync.
+  const turn = readJson(path.join(dir, "turn.json")) || {};
+  const syncing = typeof turn.sync === "boolean" ? turn.sync : pending();
+  if (!syncing) return pending();
+
+  const turnId = turn.id || "";
+  const reply = String(input.last_assistant_message ?? "").replace(/\n+$/, "");
+  if (turnId && reply && !queued().includes(`"wb:${turnId}:assistant"`)) {
+    const message = { id: `wb:${turnId}:assistant`, side: "assistant", text: clip(reply, 8000), timestamp: utcNow() };
+    try {
+      fs.appendFileSync(outbox, JSON.stringify(message) + "\n");
+    } catch {}
+  }
+
+  return pending();
+}
+
+/** The background part: send what the outbox holds. */
 export function syncTurn(input) {
   const cwd = input.cwd || process.cwd();
   const config = loadConfig(cwd);
@@ -43,10 +86,7 @@ export function syncTurn(input) {
   if (!config || !sessionId) return;
 
   const dir = sessionDir(sessionId);
-  const outbox = path.join(dir, "outbox.jsonl");
-  const draining = path.join(dir, "outbox.draining");
-  // Nothing queued: sync is off for this session (prompt-submit only queues
-  // when it is allowed), or the prompt was empty.
+  const [outbox, draining] = outboxes(dir);
   if (!hasContent(outbox) && !hasContent(draining)) return;
 
   const statusFile = path.join(dir, "sync.json");
@@ -56,17 +96,6 @@ export function syncTurn(input) {
     const conversation = conversationId || readJson(statusFile)?.conversation_id || "";
     writeAtomic(statusFile, JSON.stringify({ conversation_id: conversation, last_state: state, last_detail: detail, last_at: utcNow(), pending }, null, 2) + "\n");
   };
-  const queued = () => readText(outbox) + readText(draining);
-
-  // ---------- queue the assistant's reply ----------
-  const turnId = readJson(path.join(dir, "turn.json"))?.id || "";
-  const reply = String(input.last_assistant_message ?? "").replace(/\n+$/, "");
-  if (turnId && reply && !queued().includes(`"wb:${turnId}:assistant"`)) {
-    const message = { id: `wb:${turnId}:assistant`, side: "assistant", text: clip(reply, 8000), timestamp: utcNow() };
-    try {
-      fs.appendFileSync(outbox, JSON.stringify(message) + "\n");
-    } catch {}
-  }
 
   // ---------- one sync at a time per session ----------
   const release = lock(path.join(dir, "sync.lock"));

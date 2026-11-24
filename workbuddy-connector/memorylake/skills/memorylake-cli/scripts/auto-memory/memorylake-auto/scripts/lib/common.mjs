@@ -10,12 +10,13 @@
 // Every harness on a computer shares ONE identity and data tree,
 // ~/.memorylake/harness/, so what is computed here (the project a folder
 // belongs to, above all) must come out the same as in the bash harnesses.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const WINDOWS = process.platform === "win32";
 
@@ -483,6 +484,7 @@ export const attachmentsAllowed = (config, dir) =>
 //   gated.<turn>         the recall gate already held a call back this turn
 //   outbox.jsonl         messages waiting to be appended to the conversation
 //   sync.json            the session's conversation id and last outcome
+//   session.json         its folder and transcript, for the background run
 //   attachments.jsonl    files the user attached, waiting to be uploaded
 //   attachments.offset   how many transcript lines have been scanned for them
 //   attachments.json     the last attachment sync outcome
@@ -645,5 +647,64 @@ export function resolveProject(config, where) {
 export const tailLine = (text, count, max) =>
   text.replace(/\n+$/, "").split("\n").slice(-count).join(" ").slice(0, max);
 
-/** The first line a Stop hook prints, so WorkBuddy stops waiting for it (see hook.mjs). */
-export const ASYNC_LINE = '{"async":true,"asyncTimeout":180000}';
+// ---------- work that outlives the turn ----------------------------------------------
+
+const HOOK_SCRIPT = fileURLToPath(new URL("../hook.mjs", import.meta.url));
+
+/**
+ * Run `node hook.mjs <args>` on its own and return at once.
+ *
+ * WorkBuddy (5.11.3) runs each turn in a process of its own and ends it about
+ * a second after the turn is over. On the way out that process kills every
+ * hook still running, children included, a hook that answered
+ * {"async": true} as well; an upload started by a Stop hook never finished.
+ * A process started here is detached, and once the hook that started it has
+ * returned it is no hook's child, so nothing reaches it. It runs on the Node
+ * that runs the hook, so it needs nothing the hook did not.
+ */
+export function inBackground(args) {
+  try {
+    const child = spawn(process.execPath, [HOOK_SCRIPT, ...args], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      // Not the session's folder: on Windows a working directory cannot be deleted.
+      cwd: os.homedir(),
+      env: process.env,
+    });
+    child.on("error", () => {});
+    child.unref();
+    return Boolean(child.pid);
+  } catch {
+    return false;
+  }
+}
+
+/** What the background run needs to know about a session: where it works and its transcript. */
+export function rememberSession(input) {
+  const dir = sessionDir(input.session_id);
+  if (!mkdirp(dir)) return;
+  const file = path.join(dir, "session.json");
+  const known = readJson(file) || {};
+  const next = { cwd: input.cwd || known.cwd || "", transcript_path: input.transcript_path || known.transcript_path || "" };
+  if (next.cwd !== known.cwd || next.transcript_path !== known.transcript_path) {
+    writeAtomic(file, JSON.stringify(next, null, 2) + "\n");
+  }
+}
+
+/** The input a Stop hook got, as far as the background run needs it. */
+export function recalledSession(sessionId) {
+  const dir = sessionDir(sessionId);
+  const known = readJson(path.join(dir, "session.json")) || {};
+  let cwd = known.cwd;
+  if (!cwd) {
+    // Sessions from before session.json: the user's messages carry the folder.
+    for (const line of [...lines(path.join(dir, "outbox.draining")), ...lines(path.join(dir, "outbox.jsonl"))]) {
+      try {
+        cwd = JSON.parse(line).cwd;
+      } catch {}
+      if (cwd) break;
+    }
+  }
+  return { session_id: sessionId, cwd: cwd || os.homedir(), transcript_path: known.transcript_path || "" };
+}
