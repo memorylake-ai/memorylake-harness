@@ -49,7 +49,7 @@ workbuddy-connector/
 └── memorylake/                  the package to submit
     ├── connector-meta.json      marketplace listing
     ├── cli.json                 install / upgrade / login / status / disconnect
-    ├── icon.png
+    ├── icon.svg                 the mark from memorylake.ai/memorylake-logo.svg
     └── skills/
         ├── memorylake-cli/          entry skill, adapted for the connector
         │   └── scripts/
