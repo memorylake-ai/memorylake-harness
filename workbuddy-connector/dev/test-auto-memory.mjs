@@ -109,10 +109,19 @@ try {
 
   // The installed hooks, run the way WorkBuddy runs them.
   const plugin = installed()[0].installPath;
-  // PATH holds no `memorylake`; the link is what the hooks find.
-  const hook = (name, input) => spawnSync(process.execPath, [join(plugin, "scripts/hook.mjs"), name], {
-    input: JSON.stringify(input), encoding: "utf8",
-    env: { ...env, PATH: process.env.PATH.split(":").filter((dir) => !existsSync(join(dir, "memorylake"))).join(":") },
+  // Their commands as installed, through a shell, as WorkBuddy runs them.
+  // PATH holds the system's own directories only: no `memorylake` (the copy
+  // in ~/.memorylake/bin is what the hooks find) and no `node` (the page
+  // points the hooks at WorkBuddy's own executable instead).
+  const commands = Object.fromEntries(Object.entries(readJson(join(plugin, "hooks/hooks.json")).hooks)
+    .flatMap(([event, groups]) => groups.flatMap((group) => group.hooks.map((entry) => [entry.command.split(" ").at(-1), entry.command]))));
+  if (process.platform === "darwin") {
+    assert.match(commands["session-start"], /^ELECTRON_RUN_AS_NODE=1 "[^"]+\/WorkBuddy\.app\/Contents\/MacOS\/Electron" /, commands["session-start"]);
+    assert.match(readFileSync(join(plugin, "bin/ml-recall"), "utf8"), /^RUNTIME="[^"]+\/MacOS\/Electron"$/m);
+  }
+  const bare = { ...env, PATH: "/usr/bin:/bin:/usr/sbin:/sbin" };
+  const hook = (name, input) => spawnSync("/bin/sh", ["-c", commands[name].replaceAll("${CLAUDE_PLUGIN_ROOT}", plugin)], {
+    input: JSON.stringify(input), encoding: "utf8", env: bare,
   });
   const session = hook("session-start", { cwd: root, session_id: "s1" });
   const context = JSON.parse(session.stdout).hookSpecificOutput.additionalContext;
@@ -120,6 +129,10 @@ try {
   assert.ok(context.includes("memorylake-cli-recall skill") && !context.includes("/memorylake:"), "it points at the connector, not the plugin");
   const prompt = hook("prompt-submit", { cwd: root, session_id: "s1", prompt: "what do you know about me?" });
   assert.ok(JSON.parse(prompt.stdout).hookSpecificOutput.additionalContext.includes("ml-recall"));
+  // And ml-recall, by name, as the model runs it.
+  const recall = spawnSync("/bin/sh", ["-c", `PATH="${join(plugin, "bin")}:$PATH" ml-recall --help`], { encoding: "utf8", env: bare });
+  assert.equal(recall.status, 0, recall.stderr);
+  assert.match(recall.stderr, /usage: ml-recall/);
 
   // With the MemoryLake plugin enabled, these hooks stand down and the page
   // installs nothing.

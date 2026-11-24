@@ -1,14 +1,20 @@
-#!/usr/bin/env node
-// ml-recall: search MemoryLake and print a short digest. WorkBuddy puts this
-// plugin's bin/ on the model's PATH, so the model runs it by name; on Windows
-// ml-recall.cmd beside it does the same for a shell that is not Git Bash.
-// The work is in ../scripts/lib/recall.mjs. (A file with no extension is
-// CommonJS to Node, hence import() rather than an import statement.)
-const { pathToFileURL } = require("node:url");
-const path = require("node:path");
-import(pathToFileURL(path.join(__dirname, "..", "scripts", "lib", "recall.mjs")).href).then(({ recall }) => {
-  const result = recall(process.argv.slice(2));
-  process.stdout.write(result.stdout);
-  process.stderr.write(result.stderr);
-  process.exitCode = result.code;
-});
+#!/bin/sh
+# ml-recall: search MemoryLake and print a short digest. WorkBuddy puts this
+# plugin's bin/ on the model's PATH, so the model runs it by name (on Windows,
+# ml-recall.cmd beside it serves a shell that is not Git Bash). The work is
+# in ../scripts/ml-recall.mjs.
+#
+# Which Node runs it: the sign-in page writes WorkBuddy's own executable into
+# RUNTIME when it installs this plugin, because that is the one program
+# certain to be there. A `node` on PATH is not: WorkBuddy adds its own Node
+# to a session's PATH only if it was installed when the session's process
+# started, and it starts some ahead of time. `node` is the fallback, for a
+# copy the page did not install.
+RUNTIME=""
+# Shell built-ins only (not even dirname): the PATH may hold nothing else.
+case "$0" in */*) bin="${0%/*}" ;; *) bin=. ;; esac
+script="$(cd "$bin" && pwd)/../scripts/ml-recall.mjs"
+if [ -n "$RUNTIME" ] && [ -x "$RUNTIME" ]; then
+  ELECTRON_RUN_AS_NODE=1 exec "$RUNTIME" "$script" "$@"
+fi
+exec node "$script" "$@"

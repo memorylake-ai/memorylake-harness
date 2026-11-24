@@ -538,6 +538,54 @@ async function workbuddyCli() {
   return candidates.find((path) => path && existsSync(path)) || null;
 }
 
+/**
+ * The program the hooks and ml-recall run on, as a command prefix for a POSIX
+ * shell, or "" to leave them on the `node` they name.
+ *
+ * WorkBuddy's own executable when it runs as Node (ELECTRON_RUN_AS_NODE): of
+ * everything on the computer, it is the one thing certain to be there. A
+ * `node` on PATH is not. WorkBuddy adds its own Node to a session's PATH only
+ * if it was installed when the session's process started, it starts some
+ * ahead of time, and a computer new to WorkBuddy gets that Node only when a
+ * connector such as this one first asks for it (5.11.3). Hooks that cannot
+ * find `node` fail without a word.
+ *
+ * Windows keeps `node`: WorkBuddy's installer puts its Node there from the
+ * start, and its own executable is not known to run as Node.
+ */
+async function hookRuntime(codebuddy) {
+  if (process.platform === "win32") return "";
+  const resources = process.env.WORKBUDDY_RESOURCES_PATH || dirname(dirname(dirname(dirname(codebuddy))));
+  const candidates = process.platform === "darwin"
+    ? ["Electron", "WorkBuddy"].map((name) => join(resources, "..", "MacOS", name))
+    : ["workbuddy", "WorkBuddy"].map((name) => join(resources, "..", name));
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    const probe = await run(candidate, ["-e", "process.stdout.write(process.versions.node)"], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 15_000 });
+    if (probe.code === 0 && /^\d+\./.test(probe.stdout) && Number(probe.stdout.split(".")[0]) >= 18) return candidate;
+  }
+  return "";
+}
+
+/** Point the hooks and ml-recall of the plugin copy at `runtime` (see hookRuntime). */
+async function pinHookRuntime(plugin, runtime) {
+  if (!runtime) return;
+  const hooksFile = join(plugin, "hooks", "hooks.json");
+  const hooks = JSON.parse(await readFile(hooksFile, "utf8"));
+  const quoted = `"${runtime.replace(/(["\\$`])/g, "\\$1")}"`;
+  for (const groups of Object.values(hooks.hooks)) {
+    for (const group of groups) {
+      for (const hook of group.hooks) {
+        if (hook.command.startsWith("node ")) hook.command = `ELECTRON_RUN_AS_NODE=1 ${quoted} ${hook.command.slice(5)}`;
+      }
+    }
+  }
+  await writeFile(hooksFile, JSON.stringify(hooks, null, 2) + "\n");
+  const recall = join(plugin, "bin", "ml-recall");
+  const text = await readFile(recall, "utf8");
+  await writeFile(recall, text.replace(/^RUNTIME=""$/m, () => `RUNTIME=${quoted}`));
+}
+
 /** Run `codebuddy plugin ...` against WorkBuddy's own configuration. */
 function workbuddyPlugin(codebuddy, args) {
   return run(process.execPath, [codebuddy, "plugin", ...args], {
@@ -731,6 +779,7 @@ async function installAutoMemory() {
   // The model runs bin/ml-recall as a program. A package that travelled
   // through a zip may have lost its executable bits, so set them again.
   const plugin = join(AUTO_COPY, "memorylake-auto");
+  await pinHookRuntime(plugin, await hookRuntime(codebuddy));
   for (const dir of [join(plugin, "scripts"), join(plugin, "bin")]) {
     for (const name of await entries(dir)) {
       if (name !== "lib") await chmod(join(dir, name), 0o755).catch(() => {});

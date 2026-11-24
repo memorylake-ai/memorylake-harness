@@ -175,7 +175,9 @@ try {
   assert.equal(takeCalls().length, 0, "nothing new in the transcript, nothing sent");
 
   // ml-recall, the way the model runs it.
-  const recall = (args, mode = "") => spawnSync(process.execPath, [path.join(plugin, "bin", "ml-recall"), ...args], {
+  // (bin/ml-recall is a POSIX shell script finding Node, see there; Windows
+  // shells other than Git Bash run ml-recall.cmd, tried below.)
+  const recall = (args, mode = "") => spawnSync(WINDOWS ? process.execPath : "/bin/sh", [path.join(plugin, WINDOWS ? "scripts/ml-recall.mjs" : "bin/ml-recall"), ...args], {
     cwd: work("repo"), encoding: "utf8", env: { ...baseEnv, STUB_MODE: mode },
   });
   const found = recall(["tea"]);

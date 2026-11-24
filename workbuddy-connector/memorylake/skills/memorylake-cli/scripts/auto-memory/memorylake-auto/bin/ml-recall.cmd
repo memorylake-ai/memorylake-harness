@@ -1,1 +1,1 @@
-@node "%~dp0ml-recall" %*
+@node "%~dp0..\scripts\ml-recall.mjs" %*

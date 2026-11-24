@@ -308,6 +308,23 @@ MemoryLake project. A change to the plugin's hooks has to be made here too,
 by hand. `dev/test-hooks.mjs` runs every hook and `ml-recall` against a
 stand-in CLI with nothing on `PATH` but Node.
 
+**Which Node runs them.** The package says `node`, but on macOS and Linux
+the page rewrites that, in the copy it installs, to WorkBuddy's own
+executable run as Node (`ELECTRON_RUN_AS_NODE=1 "/Applications/WorkBuddy.app/Contents/MacOS/Electron"`,
+found from `WORKBUDDY_RESOURCES_PATH` and tried before it is used), and
+writes the same into `bin/ml-recall`, a `/bin/sh` script that uses only
+shell built-ins. WorkBuddy's own executable is the one program certain to be
+there. A `node` on `PATH` is not: WorkBuddy puts its managed Node on a
+session's `PATH` only if it was installed when the session's process
+started, it starts those processes ahead of time, and a Mac new to WorkBuddy
+gets that Node only when a connector first asks for it, so the first
+conversations after the first Connect would have none, and hooks that
+cannot start fail without a word (5.11.3, `cli-prewarm-pool.js`). The
+`codebuddy` process that runs the hooks is itself that executable with
+`ELECTRON_RUN_AS_NODE=1`. Windows keeps `node`: the installer puts
+WorkBuddy's Node there from the start, and whether `WorkBuddy.exe` runs as
+Node is not known.
+
 ```bash
 node dev/test-hooks.mjs
 ```
