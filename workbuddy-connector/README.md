@@ -115,7 +115,7 @@ again in 5.11.3):
 | --- | --- | --- |
 | Installed? | `which` on the first word of the `auth` command | that word is `memorylake` |
 | Install | runs `init` if not installed | `npm install -g` of `@memorylake/cli` into WorkBuddy's tools directory |
-| Version | runs `versionCheck`; below `minVersion` it runs `init` again | reads the date tag `v20261123` as one number |
+| Version | runs `versionCheck`; below `minVersion` it runs `init` again | reads the date tag `v20261127` as one number |
 | Logged in? | runs `status`, matches `statusMatch`; a match skips the sign-in page | `login.mjs --status`, `Logged in: yes` |
 | Log in | runs `auth`, opens the first URL it prints that contains `authUrlDomain`, waits for the process to exit | `scripts/login.mjs` |
 | Done? | polls `status` every 3 seconds for up to 5 minutes | |
@@ -295,9 +295,11 @@ for the moment that command runs. Browser login has no such moment.
 ### Which CLI has browser login
 
 Browser login arrived in CLI release `v20261117`, and both deployments serve
-it. `versionCheck.minVersion` is that tag, so WorkBuddy upgrades a CLI that
-is already installed (it runs `init` again when the version is lower). A
-CLI that is still older for some reason gets the API key field alone.
+it. `versionCheck.minVersion` is `v20261127`, the release that reaches
+MemoryLake through the system's certificates and proxy and shows the reason
+on its failure page, so WorkBuddy upgrades a CLI that is already installed
+(it runs `init` again when the version is lower). A CLI older than browser
+login for some reason gets the API key field alone.
 
 ## Automatic memory
 
