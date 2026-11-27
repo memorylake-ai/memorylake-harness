@@ -31,8 +31,11 @@ dsh, opencode, or QwenPaw needs no further setup.
 
 ## Install
 
-In WorkBuddy: **Skills -> Plugins -> +** (add marketplace), add the built
-plugin (see [Building](#building)), then install **memorylake**.
+In WorkBuddy: **Skills -> Plugins -> +** (add marketplace) ->
+`memorylake-ai/memorylake-harness`, then install **memorylake**. WorkBuddy
+reads this repository's `.workbuddy-plugin/marketplace.json`, which names the
+released plugin: a zip among this repository's releases, with the CLI inside,
+that WorkBuddy downloads and checks against the SHA-256 written there.
 
 The first session after that opens MemoryLake's sign-in page in the browser,
 once. There the user signs in (or keeps the MemoryLake login already on the
@@ -44,8 +47,8 @@ page opens: the plugin just works.
 `/memorylake:init` opens the page again, to change the account, the workspace
 or the switches; `/memorylake:status` is the health check.
 
-This directory is installable as it is, too (this repository's
-`.workbuddy-plugin/marketplace.json` points at it), but then without the CLI:
+This directory is a plugin as it is, too, for a marketplace of one's own that
+points at it, but then without the CLI:
 the plugin falls back on a `memorylake` in `~/.memorylake/bin` or on `PATH`.
 
 ## How it works
@@ -171,6 +174,18 @@ the build takes them from the CLI's npm packages, at the release the
 connector pins in `workbuddy-connector/memorylake/cli.json` (`--cli VERSION`
 for another, `--registry URL` for a mirror, `--platforms` to choose others: `linux-x64`,
 `linux-arm64` and `win32-arm64` exist too).
+
+## Releasing
+
+1. Set the version in `.workbuddy-plugin/plugin.json`, merge, and build from
+   that commit: `node dev/build.mjs --zip`.
+2. Create the release `workbuddy-plugin-v<version>` on that commit with
+   `dist/memorylake-plugin-<version>.zip` and its `.sha256` as assets (not
+   marked latest: other tools read this repository's latest release).
+3. Put the entry the build printed (`version`, and `source` with the asset's
+   URL and SHA-256) into this repository's `.workbuddy-plugin/marketplace.json`
+   and merge that. From then on WorkBuddy installs the new release; until
+   then it keeps installing the one before.
 
 ## Development
 

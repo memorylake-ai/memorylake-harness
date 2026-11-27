@@ -9,13 +9,15 @@
 //                      [--platforms darwin-arm64,win32-x64,...] [--zip]
 //
 // Leaves a marketplace directory, DIR/memorylake-plugin (DIR defaults to
-// dist/), that WorkBuddy can add as it is; --zip packs it too. The CLI
+// dist/), that WorkBuddy can add as it is; --zip packs it too, and prints
+// what to put in this repository's marketplace.json for a release. The CLI
 // release is the one the connector pins (workbuddy-connector/memorylake/cli.json)
 // unless --cli names another. Needs npm and tar.
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const plugin = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -111,5 +113,19 @@ if (process.argv.includes("--zip")) {
   const zip = join(dirname(out), `memorylake-plugin-${manifest.version}.zip`);
   rmSync(zip, { force: true });
   run("zip", ["-q", "-r", "-X", zip, "."], { cwd: out });
+  const sha256 = createHash("sha256").update(readFileSync(zip)).digest("hex");
+  writeFileSync(`${zip}.sha256`, `${sha256}  ${basename(zip)}\n`);
   console.log(zip);
+  // What this repository's .workbuddy-plugin/marketplace.json says about the
+  // plugin once the zip is a release asset (see "Releasing" in the README).
+  const tag = `workbuddy-plugin-v${manifest.version}`;
+  console.log(`\nmarketplace.json entry for release ${tag}:\n${JSON.stringify({
+    version: manifest.version,
+    source: {
+      source: "archive",
+      url: `https://github.com/memorylake-ai/memorylake-harness/releases/download/${tag}/${basename(zip)}`,
+      sha256,
+      path: "memorylake",
+    },
+  }, null, 2)}`);
 }
