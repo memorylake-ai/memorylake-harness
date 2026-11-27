@@ -7,14 +7,8 @@
   "plugins": [
     {
       "name": "memorylake",
-      "version": "0.3.0",
-      "description": "Cross-device long-term memory for WorkBuddy, backed by MemoryLake",
-      "source": {
-        "source": "archive",
-        "url": "https://github.com/memorylake-ai/memorylake-harness/releases/download/workbuddy-plugin-v0.3.0/memorylake-plugin-0.3.0.zip",
-        "sha256": "9c01a5462adb0c6e97b75c41982d7003acf861013647752befe14e1814313386",
-        "path": "memorylake"
-      }
+      "source": "./workbuddy-plugin",
+      "description": "Cross-device long-term memory for WorkBuddy, backed by MemoryLake"
     }
   ]
 }

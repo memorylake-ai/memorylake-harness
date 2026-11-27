@@ -102,8 +102,10 @@ that directory, not the repository root. See
 
 ## WorkBuddy
 
-In WorkBuddy: Skills → Plugins → **+** (add marketplace) →
-`memorylake-ai/memorylake-harness`, and install **memorylake**. That is all: the plugin carries the
+In WorkBuddy: Skills → Plugins → **+** (add marketplace), give the address of
+the plugin zip from this repository's
+[releases](https://github.com/memorylake-ai/memorylake-harness/releases)
+(`workbuddy-plugin-v<version>`), and install **memorylake**. That is all: the plugin carries the
 `memorylake` CLI, and the first session opens a page in the browser to sign
 in, pick a workspace and choose what is remembered. Machines already set up
 for another harness skip the page. See

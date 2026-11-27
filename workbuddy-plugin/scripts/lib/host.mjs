@@ -20,7 +20,7 @@ const OPEN = "run `memorylake-connect` (Bash), which opens MemoryLake's sign-in 
 export const REPAIR = OPEN;
 
 /** The same when there is no CLI to run. */
-export const NO_CLI = "This copy of the MemoryLake plugin came without the CLI for this computer; tell the user to reinstall the plugin.";
+export const NO_CLI = "This copy of the MemoryLake plugin came without the `memorylake` CLI for this computer. Tell the user to install the plugin from its release zip, which has the CLI inside: https://github.com/memorylake-ai/memorylake-harness/releases";
 
 /** The plugin's hooks are the ones that act; it is the connector's that stand down. */
 export const standDown = () => false;
@@ -34,6 +34,16 @@ export function cliDirs() {
   return process.platform === "win32" && process.arch === "arm64" ? [dir("arm64"), dir("x64")] : [dir(process.arch)];
 }
 
+/** Whether there is a CLI at all: the plugin's, one on PATH, or the one in ~/.memorylake/bin. */
+function hasCli() {
+  if (process.env.MEMORYLAKE_BIN) return true;
+  const names = process.platform === "win32" ? ["memorylake.exe", "memorylake.cmd"] : ["memorylake"];
+  // Not this plugin's bin/: the launcher there is no CLI by itself.
+  const onPath = (process.env.PATH || "").split(path.delimiter).filter((dir) => dir && path.resolve(dir) !== path.join(ROOT, "bin"));
+  return [...cliDirs(), ...onPath, path.join(path.dirname(DATA), "bin")]
+    .some((dir) => names.some((name) => fs.existsSync(path.join(dir, name))));
+}
+
 /**
  * What to say at session start on a computer where MemoryLake was never set
  * up. The first time, the sign-in page is opened for the user as well: they
@@ -41,6 +51,8 @@ export function cliDirs() {
  * is one more step. Once only; after that the page opens when asked for.
  */
 export function notSetUp() {
+  // The page signs in through the CLI; without one it could only fail.
+  if (!hasCli()) return NO_CLI;
   const marker = path.join(DATA, "state", "workbuddy-plugin-connect.json");
   if (!fs.existsSync(marker)) {
     try {
