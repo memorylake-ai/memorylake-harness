@@ -18,7 +18,7 @@ to the international endpoint.)
 | [`opencode-plugin/`](opencode-plugin/) | opencode | working — memory tools, prompt guidance, compaction guidance; published as `@memorylake/opencode-plugin` |
 | [`qwenpaw-plugin/`](qwenpaw-plugin/) | QwenPaw | working — memory backend plugin: automatic recall, memory tools, Console form, `/memorylake-status`; installs from a zip |
 | [`qwenwork-plugin/`](qwenwork-plugin/) | QwenWork | working — search-first reminder every turn, per-turn conversation sync, session status; the QwenWork agent installs it from this repo |
-| [`workbuddy-plugin/`](workbuddy-plugin/) | WorkBuddy | working — search-first recall every turn (reminder + gate), per-turn conversation sync, session status; installs from this repo as a plugin marketplace |
+| [`workbuddy-plugin/`](workbuddy-plugin/) | WorkBuddy | working — one install with everything: search-first recall every turn (reminder + gate), per-turn conversation sync, attached files, the CLI inside the plugin, a sign-in page it opens itself |
 | [`workbuddy-connector/`](workbuddy-connector/) | WorkBuddy | built, awaiting listing — CLI + Skill connector for WorkBuddy's connector market: sign-in page, CLI install and upgrade, skills for recall, memory and access; recall is up to the agent |
 
 <p align="center">
@@ -102,25 +102,19 @@ that directory, not the repository root. See
 
 ## WorkBuddy
 
-In WorkBuddy: Skills → Plugins → **+** (add marketplace) →
-`memorylake-ai/memorylake-harness`, install **memorylake**, then in a session:
-
-```
-/memorylake:init
-```
-
-Machines already set up for another harness can skip the last step. See
+In WorkBuddy: Skills → Plugins → **+** (add marketplace), add the built
+plugin, and install **memorylake**. That is all: the plugin carries the
+`memorylake` CLI, and the first session opens a page in the browser to sign
+in, pick a workspace and choose what is remembered. Machines already set up
+for another harness skip the page. See
 [`workbuddy-plugin/README.md`](workbuddy-plugin/README.md).
 
 WorkBuddy also gets a **connector** for its connector market:
 [`workbuddy-connector/`](workbuddy-connector/), awaiting listing. Connecting
-it installs the CLI, opens a page to sign in to MemoryLake, and adds skills
-for recall, memory and access control. Unlike the plugin it has no hooks, so
-nothing is searched or synced automatically: the agent runs the CLI when the
-skills tell it to. The two work together. The plugin does the automatic
-recall and sync, the connector provides the sign-in from WorkBuddy's
-connector list and explicit management of workspaces, files and access, and
-its recall skill steps aside when the plugin is installed. Both use the same
+it installs the CLI, opens the same page to sign in to MemoryLake, and adds
+the same skills; automatic recall and sync are a switch on that page. Either
+is complete alone. With both installed the plugin's hooks act and the
+connector's stand down. Both use the same
 CLI login on a machine. See
 [`workbuddy-connector/README.md`](workbuddy-connector/README.md).
 

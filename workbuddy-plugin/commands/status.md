@@ -8,35 +8,36 @@ Run the checks below in order and report each one as pass or fail with the
 detail shown. Do not stop at the first failure — the user needs the whole
 picture. End with the single most useful next action.
 
-## 1. CLI installed
+## 1. CLI
 
 ```bash
-command -v memorylake || ls "$HOME/.memorylake/bin/memorylake"
+command -v memorylake && memorylake version
 ```
 
-Report which location was found (a PATH install takes precedence over the
-plugin's private download) and its `memorylake version`. Missing from both →
-the plugin cannot do anything; point at `/memorylake:init`, which can download
-a prebuilt binary.
+The plugin carries the CLI and WorkBuddy puts it on `PATH`. Report where it
+was found and its version. Missing, or an error naming this computer's
+platform -> this copy of the plugin came without the CLI; the fix is to
+update or reinstall the plugin.
 
-## 2. jq installed
-
-```bash
-command -v jq
-```
-
-Missing → the plugin is inert and reports it: the session-start line says
-recall is unavailable, no conversation is synced, and `ml-recall` refuses to
-run. On macOS: `brew install jq`.
-
-## 3. Logged in
+## 2. Logged in
 
 ```bash
 memorylake auth status
 ```
 
-Report the profile, base URL, and where each came from. Not logged in →
-`memorylake auth login --api-key sk-...`.
+Report the profile, base URL, and whether the credentials are valid. Not
+logged in, or a key that expired -> `/memorylake:init` opens the sign-in page.
+
+## 3. Sign-in page
+
+```bash
+cat "$HOME/.memorylake/harness/state/workbuddy-plugin-page.json" 2>/dev/null
+tail -n 20 "$HOME/.memorylake/harness/logs/workbuddy-connect.log" 2>/dev/null
+```
+
+The first file exists while a sign-in page is open (its address is inside).
+The log holds every sign-in that failed, with the reason; report the most
+recent entry if there is one.
 
 ## 4. Config
 
@@ -63,7 +64,7 @@ prefix match > global `sync_conversations` > global `sync_on_write`. E.g.
 
 ## 5. Connectivity
 
-Only if steps 1, 3, and 4 passed:
+Only if steps 1, 2, and 4 passed:
 
 ```bash
 memorylake project list --workspace <workspace from config>
@@ -99,7 +100,7 @@ sync is ON means no turn has finished since it was enabled.
 
 ## 8. Attachment sync
 
-Attachment sync is ON only when `sync_attachments` is an explicit `true` AND
+Attachment sync is ON only when `sync_attachments` is `true` AND
 this folder's conversation-sync policy (step 4) is ON; say which of the two
 turned it off. When it is ON:
 

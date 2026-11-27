@@ -15,7 +15,7 @@ Nothing needs to be installed beforehand.
 
 | Integration | Where | What it gives |
 | --- | --- | --- |
-| Plugin | [`workbuddy-plugin/`](../workbuddy-plugin/) | Automatic memory through hooks: search-first recall every turn, per-turn conversation sync |
+| Plugin | [`workbuddy-plugin/`](../workbuddy-plugin/) | Everything in one install: automatic memory through hooks, the CLI inside the plugin, the same sign-in page and skills |
 | MCP connector (`source: memorylake`) | the `memorylake-mcp` repository | Memory and library tools over MCP, cloud OAuth |
 | CLI connector (`source: memorylake`) | this directory | The whole CLI surface on demand: memory, workspaces, projects, files, team and access |
 
@@ -33,10 +33,10 @@ each is complete alone:
 
 | Installed | Sign-in, CLI, import, managing MemoryLake | Recall and saving |
 | --- | --- | --- |
-| Plugin only | `/memorylake:init`, the plugin's skill | automatic (the plugin's hooks) |
+| Plugin only | the plugin: its own sign-in page, the CLI it carries, the same skills | automatic (the plugin's hooks) |
 | Connector only, automatic memory off | the connector | when the agent or the user decides |
 | Connector only, automatic memory on | the connector | automatic (the same hooks, installed by the page) |
-| Both | either | automatic, by the plugin; the page installs nothing and the connector's hooks stand down |
+| Both | either | automatic, by the plugin; the page installs nothing, writes the switches, and the connector's hooks stand down |
 The `source` differs from the MCP connector's because WorkBuddy requires it
 to be globally unique.
 
@@ -309,19 +309,28 @@ which does what the MemoryLake plugin for WorkBuddy's hooks and `ml-recall`
 do: no commands and no skill, because the connector already installs the
 CLI, signs in, and ships the skills.
 
-**It is written in Node, not copied from the plugin.** The plugin's hooks are
-bash scripts that need `jq` (and `perl`, `git`, `shasum`). A connector is
-installed with one click, often on Windows, on a computer that may have none
-of them; WorkBuddy always has Node for a connector that declares
-`runtime: node`. So `scripts/auto-memory/memorylake-auto/` is a port to Node
-of `workbuddy-plugin/scripts` and `bin`, using Node's own modules only: one
+**It is written in Node.** A connector is installed with one click, often on
+Windows, on a computer that may have no bash, `jq`, `perl` or `git`; WorkBuddy
+always has Node for a connector that declares `runtime: node`. So
+`scripts/auto-memory/memorylake-auto/` uses Node's own modules only: one
 entry point, `scripts/hook.mjs <hook>`, with the hooks in `scripts/lib/`, and
 `bin/ml-recall` (plus `ml-recall.cmd` for a Windows shell that is not Git
 Bash). It reads a repository's remotes from `.git` itself instead of running
-git, and names a project exactly as the bash hooks do (on Windows, a folder
-with no remote is spelled the way Git Bash spells it), so both meet in one
-MemoryLake project. A change to the plugin's hooks has to be made here too,
-by hand. `dev/test-hooks.mjs` runs every hook and `ml-recall` against a
+git, and names a project exactly as the other harnesses' bash hooks do (on
+Windows, a folder with no remote is spelled the way Git Bash spells it), so
+all meet in one MemoryLake project.
+
+**The plugin runs these same files.** The MemoryLake plugin for WorkBuddy
+carries a copy of the hooks, `ml-recall`, `login.mjs` and the skills, made by
+`workbuddy-plugin/dev/sync.mjs`; this directory is the source. The one file
+that is each packaging's own is `scripts/lib/host.mjs`: where the CLI is,
+what the model is told when MemoryLake needs setting up, and whether to stand
+down. After a change here, run that script (its `--check` is part of
+`workbuddy-plugin/dev/test.mjs`). A change to a passage of a skill that the
+plugin words differently stops the sync until its list of rewrites is brought
+along.
+
+`dev/test-hooks.mjs` runs every hook and `ml-recall` against a
 stand-in CLI with nothing on `PATH` but Node, including a turn whose
 process kills its whole process group (Unix) or tree (Windows, with the hook
 under Git Bash) while the upload is still running, and a session start that
@@ -343,8 +352,7 @@ page writes `~/.memorylake/harness/config.md`, the file the hooks read, with
 the workspace chosen on the page and the account's own actor (bound to the
 workspace if it was not), and the four switch keys set to what the page
 showed, `true` or `false`. Every switch starts on, `sync_attachments`
-included: where the plugin leaves attached files to an explicit opt-in,
-here the switch is in front of the user with its own line. With recall and
+included: the switch is in front of the user with its own line. With recall and
 conversation sync both off there is nothing for the hooks to do, so the
 plugin is uninstalled instead. An existing configuration keeps its other
 settings and takes the chosen workspace; its actor
@@ -376,7 +384,7 @@ locks keep two runs from sending the same messages.
 
 | The page finds | It does |
 | --- | --- |
-| The MemoryLake plugin enabled in WorkBuddy | leaves the switches out, installs nothing, and says the plugin provides automatic memory |
+| The MemoryLake plugin enabled in WorkBuddy, or the page is the plugin's own | shows the switches as they are; **Done** writes them and installs nothing, since the plugin has the hooks |
 | Automatic memory installed by an earlier connect | shows the switches as they are; **Done** installs again, so a reconnect brings the current hooks |
 | No WorkBuddy CLI | leaves the three switches out |
 | Otherwise | shows the three switches, on |

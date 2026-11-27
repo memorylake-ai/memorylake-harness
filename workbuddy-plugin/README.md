@@ -14,9 +14,16 @@ other MemoryLake clients. It is deliberately assertive about it:
 - **Every turn is remembered.** After each turn, the user's message and the
   assistant's final reply are appended to a MemoryLake conversation (one per
   WorkBuddy session); the server distills memories from it.
-- **Attached files can follow (opt-in).** With `sync_attachments: true`, the
-  documents and images the user attaches to a message are uploaded to the
-  MemoryLake Library and imported into the session's project.
+- **Attached files follow.** The documents and images the user attaches to a
+  message are uploaded to the MemoryLake Library and imported into the
+  session's project, unless that switch is turned off.
+- **The whole of MemoryLake is at hand.** The `memorylake` CLI comes inside
+  the plugin, with skills for managing memory, files, projects and access.
+
+Installing the plugin is all there is to it. Nothing else has to be on the
+computer: the CLI for macOS and Windows is inside the plugin, the
+hooks need only the Node that WorkBuddy runs hooks with, and signing in
+happens on a page the plugin opens in the browser.
 
 All MemoryLake harnesses share one identity and data tree
 (`~/.memorylake/harness/`): a machine already set up for Claude Code, Codex,
@@ -24,32 +31,47 @@ dsh, opencode, or QwenPaw needs no further setup.
 
 ## Install
 
-In WorkBuddy: **Skills -> Plugins -> +** (add marketplace) ->
-`memorylake-ai/memorylake-harness`, then install **memorylake**. WorkBuddy reads this repository's
-`.workbuddy-plugin/marketplace.json`, which points at this directory; Claude
-Code keeps reading `.claude-plugin/`.
+In WorkBuddy: **Skills -> Plugins -> +** (add marketplace), add the built
+plugin (see [Building](#building)), then install **memorylake**.
 
-Then, in a WorkBuddy session:
+The first session after that opens MemoryLake's sign-in page in the browser,
+once. There the user signs in (or keeps the MemoryLake login already on the
+computer), picks a workspace, may import the memory WorkBuddy already keeps on
+the computer, and chooses what automatic memory does. Memory works from the
+next message on. On a machine another MemoryLake harness already set up, no
+page opens: the plugin just works.
 
-```
-/memorylake:init
-```
+`/memorylake:init` opens the page again, to change the account, the workspace
+or the switches; `/memorylake:status` is the health check.
 
-It installs the CLI if needed, logs in, and writes the shared config. Skip it
-on a machine that is already set up. `/memorylake:status` is the health check.
+This directory is installable as it is, too (this repository's
+`.workbuddy-plugin/marketplace.json` points at it), but then without the CLI:
+the plugin falls back on a `memorylake` in `~/.memorylake/bin` or on `PATH`.
 
 ## How it works
 
 WorkBuddy runs Claude-Code-style plugin hooks (command hooks only, on the
-desktop). The plugin uses four events:
+desktop). All of them are `node scripts/hook.mjs <name>`:
 
-| Hook | Script | What it does |
+| Hook | Name | What it does |
 | --- | --- | --- |
-| `SessionStart` | `scripts/session-start.sh` | Standing instructions (what MemoryLake is, search-first, what is synced) and a status line; re-sent after a compaction |
-| `UserPromptSubmit` | `scripts/prompt-submit.sh` | Starts the turn: resets the gate, queues the user's words for sync, injects the search-first reminder |
-| `PreToolUse` | `scripts/recall-gate.sh` | Marks the turn searched when the model runs `ml-recall`; otherwise holds back the turn's first other tool call, once |
-| `Stop` (async) | `scripts/sync-turn.sh` | Appends the queued user message and the final reply to the session's MemoryLake conversation |
-| `Stop` (async) | `scripts/sync-attachments.sh` | Reads the turn's attached files from the transcript and uploads them, when `sync_attachments` is on |
+| `SessionStart` | `session-start` | Standing instructions (what MemoryLake is, search-first, what is synced) and a status line; re-sent after a compaction. Not set up yet: opens the sign-in page, the first time |
+| `UserPromptSubmit` | `prompt-submit` | Starts the turn: resets the gate, queues the user's words for sync, injects the search-first reminder |
+| `PreToolUse` | `recall-gate` | Marks the turn searched when the model runs `ml-recall`; otherwise holds back the turn's first other tool call, once |
+| `Stop` | `sync-turn` | Queues the final reply and starts the upload of the turn on its own, so it outlives the turn |
+| `Stop` | `sync-attachments` | Reads the turn's attached files from the transcript and starts their upload the same way |
+
+WorkBuddy puts the plugin's `bin/` on the model's `PATH`:
+
+| Command | What it is |
+| --- | --- |
+| `ml-recall` | The search the model runs at the start of a turn |
+| `memorylake` | The CLI inside the plugin, for this computer's platform |
+| `memorylake-connect` | Opens the sign-in page (`scripts/connect.mjs`) |
+
+The hooks, `ml-recall`, the sign-in page and the skills are the same files
+the [WorkBuddy connector](../workbuddy-connector) carries; see
+[Development](#development).
 
 Why hooks and not the system prompt: WorkBuddy assembles its desktop system
 prompt from a fixed set of sources with no plugin slot, and switches off the
@@ -62,8 +84,8 @@ is the closest a plugin can get.
 
 Text only: what the user typed (WorkBuddy's own injected context stripped)
 and the assistant's final reply, each clipped to 8000 characters. Tool calls,
-tool output, and thinking never leave the machine, and neither do attachments
-unless `sync_attachments` is turned on (next section). Each message
+tool output, and thinking never leave the machine. Attachments are the next
+section. Each message
 carries a custom id derived from its turn, so retries never duplicate.
 
 ### Which project things land in
@@ -89,9 +111,10 @@ A failed sync keeps its messages queued under
 `~/.memorylake/harness/state/workbuddy/<session>/` and retries after the next
 turn; `/memorylake:status` shows the last outcome.
 
-### Attached files (opt-in)
+### Attached files
 
-With `sync_attachments: true`, files the user attaches to a message are
+With `sync_attachments: true` (a switch on the sign-in page, on unless the
+user turns it off there), files the user attaches to a message are
 uploaded after the turn into a Library folder named `attachments--<project>`
 and imported into the same project as the conversation, so they are
 searchable as documents.
@@ -126,10 +149,39 @@ Keys in `~/.memorylake/harness/config.md` (or a folder's
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `workspace`, `actor` | -- | Required; written by init |
-| `sync_conversations` | follows `sync_on_write` | Upload each turn. Outbound, so explicit opt-in |
+| `workspace`, `actor` | -- | Required; written by the sign-in page |
+| `sync_conversations` | follows `sync_on_write` | Upload each turn. A switch on the sign-in page |
 | `sync_deny` | -- | Comma-separated path prefixes that never upload |
-| `sync_attachments` | off | Upload the documents and images attached to a message. Must be an explicit `true` |
+| `sync_attachments` | off | Upload the documents and images attached to a message. Must be an explicit `true`, which the sign-in page writes |
 | `sync_attachments_max_mb` | 20 | Largest attached file to upload |
 | `recall_reminder` | on | The per-turn search-first reminder |
 | `recall_gate` | on | Hold back the first unsearched tool call of a turn |
+
+## Building
+
+```bash
+node dev/build.mjs --zip
+```
+
+leaves `dist/memorylake-plugin/`, a marketplace directory holding the plugin
+with the `memorylake` CLI under `vendor/` for macOS (arm64, x64) and Windows
+(x64), about 22 MB, and the same as a zip. On any other platform the plugin
+falls back on a `memorylake` in `~/.memorylake/bin` or on `PATH`. The binaries are not in this repository:
+the build takes them from the CLI's npm packages, at the release the
+connector pins in `workbuddy-connector/memorylake/cli.json` (`--cli VERSION`
+for another, `--registry URL` for a mirror, `--platforms` to choose others: `linux-x64`,
+`linux-arm64` and `win32-arm64` exist too).
+
+## Development
+
+The connector's copies of the shared files are the source. After changing
+one, bring the plugin's along:
+
+```bash
+node dev/sync.mjs           # copy; skills get the plugin's wording
+node dev/test.mjs           # the plugin end to end, against a stand-in API
+```
+
+What is the plugin's own: `scripts/lib/host.mjs` (where its CLI is, what the
+model is told when setup is needed, opening the page at the first session),
+`scripts/connect.mjs`, `bin/memorylake*`, the commands and the manifest.

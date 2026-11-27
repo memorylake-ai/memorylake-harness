@@ -22,6 +22,11 @@
 // A MemoryLake login already on the computer (the CLI keeps one, shared by
 // every MemoryLake tool there) is offered first, to keep or to replace.
 //
+// The MemoryLake plugin for WorkBuddy shows the same page (its copy of this
+// file, started by its scripts/connect.mjs with MEMORYLAKE_WORKBUDDY_PLUGIN=1).
+// The plugin has the hooks itself, so there the page installs none and only
+// writes the configuration they read.
+//
 // `login.mjs --status` and `login.mjs --disconnect` serve no page: they are
 // the connector's status and disconnect commands (see the end of the file).
 // `login.mjs --refresh` is started by the status command, on its own.
@@ -520,14 +525,17 @@ async function runImport(ids) {
 // Where and how that CLI is started is not a documented interface (seen in
 // 5.11.3), so every failure here leaves the connection itself untouched.
 //
-// The MemoryLake plugin proper does the same job and more. When it is
-// enabled the page installs nothing, and the hooks installed here stand down
-// (scripts/hook.mjs), so the two never both act on a turn.
+// The MemoryLake plugin proper has the same hooks. When it is enabled, or is
+// what started this page, the page installs nothing and only writes the
+// configuration, and the hooks installed here stand down (lib/host.mjs), so
+// the two never both act on a turn.
 
 const AUTO_PACKAGE = join(dirname(fileURLToPath(import.meta.url)), "auto-memory");
 const AUTO_MARKETPLACE = "memorylake-connector";
 const AUTO_PLUGIN = `memorylake-auto@${AUTO_MARKETPLACE}`;
 const FULL_PLUGIN = "memorylake@memorylake";
+// Set by the plugin when the page is its own.
+const OWN_HOOKS = process.env.MEMORYLAKE_WORKBUDDY_PLUGIN === "1";
 const WORKBUDDY_HOME = process.env.CODEBUDDY_CONFIG_DIR || join(homedir(), ".workbuddy");
 // The directory every MemoryLake harness on this computer shares.
 const HARNESS_HOME = process.env.MEMORYLAKE_PLUGIN_DATA || join(homedir(), ".memorylake", "harness");
@@ -582,12 +590,13 @@ async function autoMemoryInstalled() {
 }
 
 /**
- * Where automatic memory stands: "plugin" (the MemoryLake plugin provides
- * it), "on" (installed by an earlier connect), "available", or "unavailable".
+ * Where automatic memory stands: "plugin" (the MemoryLake plugin has the
+ * hooks; the switches still apply), "on" (installed by an earlier connect),
+ * "available", or "unavailable".
  */
 async function autoMemoryState() {
   const enabled = (await readJsonFile(join(WORKBUDDY_HOME, "settings.json")))?.enabledPlugins ?? {};
-  if (enabled[FULL_PLUGIN] === true) return { state: "plugin" };
+  if (OWN_HOOKS || enabled[FULL_PLUGIN] === true) return { state: "plugin", settings: await memorySettings() };
   if (!existsSync(join(AUTO_PACKAGE, ".workbuddy-plugin", "marketplace.json"))) return { state: "unavailable", reason: "package" };
   if (!(await workbuddyCli())) return { state: "unavailable", reason: "workbuddy" };
   const settings = await memorySettings();
@@ -744,6 +753,8 @@ const CONNECTED = join(HARNESS_HOME, "workbuddy-connector.json");
 
 async function markConnected(ownLogin) {
   loggedIn = true;
+  // The record is the connector's; the plugin is not connected through it.
+  if (OWN_HOOKS) return updateCli().catch(() => {});
   await mkdir(HARNESS_HOME, { recursive: true });
   await writeFile(CONNECTED, JSON.stringify({ connectedAt: new Date().toISOString(), ownLogin }, null, 2) + "\n");
   await updateCli().catch(() => {});
@@ -839,11 +850,11 @@ async function refresh() {
 async function enableAutoMemory(given) {
   if (!workspaceId) return { ok: false, error: "no workspace was chosen" };
   const { state, reason } = await autoMemoryState();
-  if (state === "plugin") return { ok: true, state };
   if (state === "unavailable") return { ok: false, error: `automatic memory is not available here (${reason})` };
   const settings = chosenSettings(given);
   try {
     const workspace = await writeHarnessConfig(workspaceId, settings);
+    if (state === "plugin") return { ok: true, state, workspace, settings };
     // Recall and conversation sync both off: the hooks would have nothing to do.
     if (!settings.recall && !settings.conversations) {
       await removeAutoMemory();
@@ -1287,7 +1298,7 @@ const TEXT = {
     useWorkspace: "Continue", saving: "Saving...", creating: "Creating...",
     doneTitle: "You're connected", doneIntro: "You can close this page and go back to WorkBuddy.",
     rowWorkspace: "Workspace", rowImport: "Imported", rowAuto: "Automatic memory",
-    autoPlugin: "On, via the MemoryLake plugin", autoOff: "Off", featureSep: ", ", sentenceSep: " ",
+    autoOff: "Off", featureSep: ", ", sentenceSep: " ",
     featRecall: "Recall", featConversations: "Conversations", featAttachments: "Files",
     files: " files", importFailed: " failed",
     lost: "This page lost contact with WorkBuddy. Reconnect MemoryLake from WorkBuddy.",
@@ -1300,7 +1311,6 @@ const TEXT = {
     optImport: "Import existing memory", optImportDetail: "WorkBuddy's memory files on this computer",
     pickContent: "Choose what to import", pickNone: "Choose at least one item, or turn import off.",
     noteStart: "Starts with your next new conversation.", noteImport: "Lines that look like passwords are never imported.",
-    pluginNote: "Automatic memory comes from the MemoryLake plugin.",
     memoryGo: "Done", importing: "Importing...", applying: "Turning on...",
     kindProfile: "Your profile", kindAccount: "Account memory", kindGlobal: "Long-term memory",
     kindWorkspace: "Workspace memory: ", kindNotes: "Daily notes: ",
@@ -1322,7 +1332,7 @@ const TEXT = {
     useWorkspace: "继续", saving: "正在保存……", creating: "正在创建……",
     doneTitle: "已连接", doneIntro: "可以关闭此页面，回到 WorkBuddy。",
     rowWorkspace: "工作区", rowImport: "已导入", rowAuto: "自动记忆",
-    autoPlugin: "已开启（MemoryLake 套件）", autoOff: "未开启", featureSep: "、", sentenceSep: "",
+    autoOff: "未开启", featureSep: "、", sentenceSep: "",
     featRecall: "查记忆", featConversations: "对话", featAttachments: "文件",
     files: " 个文件", importFailed: " 个失败",
     lost: "此页面已与 WorkBuddy 断开，请回到 WorkBuddy 重新连接。",
@@ -1335,7 +1345,6 @@ const TEXT = {
     optImport: "导入已有记忆", optImportDetail: "WorkBuddy 在本机的记忆文件",
     pickContent: "选择导入内容", pickNone: "请至少选择一项，或关闭导入。",
     noteStart: "从下一个新对话开始生效。", noteImport: "疑似密码的内容不会导入。",
-    pluginNote: "自动记忆由 MemoryLake 套件提供。",
     memoryGo: "完成", importing: "正在导入……", applying: "正在开启……",
     kindProfile: "个人档案", kindAccount: "账号记忆", kindGlobal: "长期记忆",
     kindWorkspace: "工作区记忆：", kindNotes: "每日笔记：",
@@ -1432,7 +1441,7 @@ async function finish(auto) {
   if (workspaceInUse) row(t.rowWorkspace, workspaceInUse.name);
   if (imported) row(t.rowImport, imported.imported + t.files + (imported.failed.length ? ", " + imported.failed.length + t.importFailed : ""));
   if (workspaceInUse || auto) {
-    row(t.rowAuto, auto?.state === "plugin" ? t.autoPlugin : auto?.state === "on" ? features(auto.settings) : t.autoOff);
+    row(t.rowAuto, auto?.state === "on" || auto?.state === "plugin" ? features(auto.settings) : t.autoOff);
   }
   $("summary").hidden = !$("summary").children.length;
   show("step-done");
@@ -1546,10 +1555,9 @@ async function openMemory(workspace) {
   if (!workspace) return finish();
   const [imports, auto] = await Promise.all([call("importScan"), call("autoScan")]);
   const groups = imports.ok ? imports.groups : [];
-  const canAuto = auto.ok && (auto.state === "available" || auto.state === "on");
-  const plugin = auto.ok && auto.state === "plugin" ? auto : null;
-  if (!groups.length && !canAuto) return finish(plugin);
-  memory = { canAuto, plugin, switches: null, importing: null };
+  const canAuto = auto.ok && ["available", "on", "plugin"].includes(auto.state);
+  if (!groups.length && !canAuto) return finish();
+  memory = { canAuto, switches: null, importing: null };
   if (canAuto) {
     const on = auto.settings || {};
     const sw = {
@@ -1572,7 +1580,7 @@ async function openMemory(workspace) {
     memory.switches = sw;
   }
   if (groups.length) addImport(groups);
-  $("memory-note").textContent = [canAuto && t.noteStart, plugin && t.pluginNote, groups.length && t.noteImport].filter(Boolean).join(t.sentenceSep);
+  $("memory-note").textContent = [canAuto && t.noteStart, groups.length && t.noteImport].filter(Boolean).join(t.sentenceSep);
   show("step-memory");
 }
 
@@ -1595,7 +1603,7 @@ $("memory-form").addEventListener("submit", async (event) => {
     }
     imported = result;
   }
-  let auto = memory.plugin;
+  let auto = null;
   if (memory.canAuto) {
     const sw = memory.switches;
     busy(button, t.applying);

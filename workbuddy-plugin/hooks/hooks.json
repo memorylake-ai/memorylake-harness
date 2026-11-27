@@ -1,12 +1,12 @@
 {
-  "description": "MemoryLake: standing instructions at session start, a search-first reminder and recall gate every turn, per-turn conversation sync, and opt-in sync of attached files.",
+  "description": "MemoryLake automatic memory: standing instructions at session start, a search-first reminder and recall gate every turn, per-turn conversation sync.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/session-start.sh",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" session-start",
             "timeout": 10
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/prompt-submit.sh",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" prompt-submit",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/recall-gate.sh",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" recall-gate",
             "timeout": 5
           }
         ]
@@ -39,15 +39,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/sync-turn.sh",
-            "async": true,
-            "timeout": 180
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" sync-turn",
+            "timeout": 10
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/sync-attachments.sh",
-            "async": true,
-            "timeout": 180
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" sync-attachments",
+            "timeout": 10
           }
         ]
       }

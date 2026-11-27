@@ -1,0 +1,27 @@
+#!/bin/sh
+# memorylake: the CLI this plugin carries, for the computer it is running on.
+# WorkBuddy puts this directory on the model's PATH. The binaries are put under
+# ../vendor when the plugin is built (dev/build.mjs); a copy of the plugin
+# without them falls back on the CLI in ~/.memorylake/bin.
+root=$(cd "$(dirname "$0")/.." && pwd)
+exe=memorylake
+case "$(uname -s)" in
+  Darwin) os=darwin ;;
+  Linux) os=linux ;;
+  MINGW*|MSYS*|CYGWIN*) os=win32; exe=memorylake.exe ;;
+  *) os=unknown ;;
+esac
+case "$(uname -m)" in
+  arm64|aarch64) arch=arm64 ;;
+  *) arch=x64 ;;
+esac
+# Windows on ARM runs x64 programs, and the plugin may carry only that one.
+x64=
+[ "$os" = win32 ] && x64="$root/vendor/win32-x64/$exe"
+for candidate in "$root/vendor/$os-$arch/$exe" "$x64" "${MEMORYLAKE_PLUGIN_DATA:+$(dirname "$MEMORYLAKE_PLUGIN_DATA")/bin/$exe}" "$HOME/.memorylake/bin/$exe"; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    exec "$candidate" "$@"
+  fi
+done
+echo "memorylake: this copy of the MemoryLake plugin has no CLI for $os-$arch" >&2
+exit 127

@@ -6,3 +6,7 @@ PLAN.md
 
 # Connector package built for submission
 workbuddy-connector/*.zip
+
+# The plugin as built, with the CLI inside (workbuddy-plugin/dev/build.mjs)
+workbuddy-plugin/dist/
+workbuddy-plugin/vendor/

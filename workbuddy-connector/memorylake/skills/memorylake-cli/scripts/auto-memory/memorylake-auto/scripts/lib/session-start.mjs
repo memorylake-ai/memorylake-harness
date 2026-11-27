@@ -13,8 +13,7 @@ import {
   ageSeconds, attachmentsAllowed, cliJson, dataDir, findCli, flagEnabled, loadConfig, mkdirp, readText,
   syncDenied, writeAtomic,
 } from "./common.mjs";
-
-const RECONNECT = "ask the user to reconnect the MemoryLake connector in WorkBuddy's connector list";
+import { NO_CLI, REPAIR, notSetUp } from "./host.mjs";
 
 const context = (text) => ({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text } });
 
@@ -25,10 +24,10 @@ export function sessionStart(input) {
   // explicit act, and a memory that says nothing looks like a working one.
   const config = loadConfig(cwd);
   if (!config) {
-    return context(`MemoryLake (the user's cross-device long-term memory) is installed but not set up on this machine, so recall and conversation sync are off. If the user asks about memory or MemoryLake, ask them to reconnect the MemoryLake connector in WorkBuddy's connector list.`);
+    return context(`MemoryLake (the user's cross-device long-term memory) is installed but not set up on this machine, so recall and conversation sync are off. ${notSetUp()}`);
   }
   if (!findCli()) {
-    return context(`MemoryLake: the 'memorylake' CLI is not installed, so memory recall is UNAVAILABLE this session and conversations are not being synced. Do not treat missing recall results as 'no such memory'. Ask the user to reconnect the MemoryLake connector in WorkBuddy's connector list -- that installs the CLI and signs in.`);
+    return context(`MemoryLake: the 'memorylake' CLI is not installed, so memory recall is UNAVAILABLE this session and conversations are not being synced. Do not treat missing recall results as 'no such memory'. ${NO_CLI}`);
   }
 
   // The cache holds DATA (the project count), never a rendered line: the
@@ -42,7 +41,7 @@ export function sessionStart(input) {
   if (!projects) {
     const listed = cliJson(["project", "list", "--workspace", config.workspace]);
     if (!listed || typeof listed !== "object") {
-      return context(`MemoryLake: workspace ${config.workspace} is unreachable (not logged in, or the network is down). Memory recall is UNAVAILABLE this session -- if a search returns nothing, say the memory backend could not be reached rather than concluding the memory does not exist. If it stays that way, ${RECONNECT}.`);
+      return context(`MemoryLake: workspace ${config.workspace} is unreachable (not logged in, or the network is down). Memory recall is UNAVAILABLE this session -- if a search returns nothing, say the memory backend could not be reached rather than concluding the memory does not exist. If it stays that way, ${REPAIR}.`);
     }
     projects = String(Array.isArray(listed.items) ? listed.items.length : 0);
     if (mkdirp(path.dirname(cacheFile))) writeAtomic(cacheFile, projects);
