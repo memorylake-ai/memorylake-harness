@@ -7,7 +7,7 @@
   "description_en": "Cross-device long-term memory: recall and remember facts, get stored files back, manage workspaces.",
   "source": "memorylake",
   "type": "cli",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minWorkbuddyVersion": "4.24.0",
   "examples_zh": [
     "把 WorkBuddy 已有的记忆导入 MemoryLake",

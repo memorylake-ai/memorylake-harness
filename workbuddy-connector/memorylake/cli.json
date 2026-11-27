@@ -7,9 +7,9 @@
     "MEMORYLAKE_CONNECTOR_HOME": "$HOME/.workbuddy/connectors-marketplace/connectors/memorylake"
   },
   "init": {
-    "darwin": "npm install -g --force @memorylake/cli@20261123.0.0",
-    "linux": "npm install -g --force @memorylake/cli@20261123.0.0",
-    "win32": "npm.cmd install -g --force @memorylake/cli@20261123.0.0 && (if exist \"%npm_config_prefix%\\memorylake.exe\" del /f /q \"%npm_config_prefix%\\memorylake.exe\")"
+    "darwin": "npm install -g --force @memorylake/cli@20261127.0.0",
+    "linux": "npm install -g --force @memorylake/cli@20261127.0.0",
+    "win32": "npm.cmd install -g --force @memorylake/cli@20261127.0.0 && (if exist \"%npm_config_prefix%\\memorylake.exe\" del /f /q \"%npm_config_prefix%\\memorylake.exe\")"
   },
   "versionCheck": {
     "command": {
@@ -17,7 +17,7 @@
       "linux": "memorylake version",
       "win32": "memorylake version"
     },
-    "minVersion": "20261123",
+    "minVersion": "20261127",
     "versionPattern": "v(\\d{8})"
   },
   "auth": {
