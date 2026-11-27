@@ -91,6 +91,15 @@ try {
   await sleep(400);
   assert.equal(mock.exitCode, null, "mock API did not start (is port 18765 taken?)");
 
+  // A copy of the plugin without the CLI (this directory as it is) says so,
+  // and opens no sign-in page that could only fail.
+  const bare = join(root, "bare");
+  cpSync(plugin, bare, { recursive: true, filter: (source) => !/[\\/]vendor$/.test(source) });
+  const lacking = spawnSync(process.execPath, [join(bare, "scripts/hook.mjs"), "session-start"], { input: JSON.stringify({ cwd: root, session_id: "s0" }), encoding: "utf8", env });
+  assert.match(lacking.stdout, /came without the `memorylake` CLI/, lacking.stdout);
+  await sleep(300);
+  assert.equal(openedUrls().length, 0, "no page without a CLI");
+
   // The command the model runs is the CLI inside the plugin.
   const cli = spawnSync(join(plugin, "bin/memorylake"), ["version"], { env, encoding: "utf8" });
   assert.match(cli.stdout, /^v\d{8}|dev build/, cli.stderr);

@@ -10,7 +10,7 @@
 //
 // Leaves a marketplace directory, DIR/memorylake-plugin (DIR defaults to
 // dist/), that WorkBuddy can add as it is; --zip packs it too, and prints
-// what to put in this repository's marketplace.json for a release. The CLI
+// the marketplace.json entry that installs the zip from its release. The CLI
 // release is the one the connector pins (workbuddy-connector/memorylake/cli.json)
 // unless --cli names another. Needs npm and tar.
 import { spawnSync } from "node:child_process";
@@ -116,8 +116,8 @@ if (process.argv.includes("--zip")) {
   const sha256 = createHash("sha256").update(readFileSync(zip)).digest("hex");
   writeFileSync(`${zip}.sha256`, `${sha256}  ${basename(zip)}\n`);
   console.log(zip);
-  // What this repository's .workbuddy-plugin/marketplace.json says about the
-  // plugin once the zip is a release asset (see "Releasing" in the README).
+  // What a marketplace.json says to install the zip from its release (see
+  // "Releasing" in the README for why this repository's does not, yet).
   const tag = `workbuddy-plugin-v${manifest.version}`;
   console.log(`\nmarketplace.json entry for release ${tag}:\n${JSON.stringify({
     version: manifest.version,

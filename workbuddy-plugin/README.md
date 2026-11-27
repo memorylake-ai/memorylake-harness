@@ -31,11 +31,16 @@ dsh, opencode, or QwenPaw needs no further setup.
 
 ## Install
 
-In WorkBuddy: **Skills -> Plugins -> +** (add marketplace) ->
-`memorylake-ai/memorylake-harness`, then install **memorylake**. WorkBuddy
-reads this repository's `.workbuddy-plugin/marketplace.json`, which names the
-released plugin: a zip among this repository's releases, with the CLI inside,
-that WorkBuddy downloads and checks against the SHA-256 written there.
+The plugin with the CLI inside is a zip among this repository's
+[releases](https://github.com/memorylake-ai/memorylake-harness/releases)
+(`workbuddy-plugin-v<version>`). In WorkBuddy: **Skills -> Plugins -> +** (add
+marketplace), give the zip's address, then install **memorylake**.
+
+Adding `memorylake-ai/memorylake-harness` itself installs this directory as it
+is, without the CLI (see below). The marketplace entry will name the released
+zip instead once it is kept somewhere WorkBuddy can download it from in
+mainland China: WorkBuddy allows a plugin download 60 seconds, and a release
+asset on GitHub does not arrive in that time there without a proxy.
 
 The first session after that opens MemoryLake's sign-in page in the browser,
 once. There the user signs in (or keeps the MemoryLake login already on the
@@ -47,8 +52,8 @@ page opens: the plugin just works.
 `/memorylake:init` opens the page again, to change the account, the workspace
 or the switches; `/memorylake:status` is the health check.
 
-This directory is a plugin as it is, too, for a marketplace of one's own that
-points at it, but then without the CLI:
+This directory is a plugin as it is (this repository's
+`.workbuddy-plugin/marketplace.json` points at it), but then without the CLI:
 the plugin falls back on a `memorylake` in `~/.memorylake/bin` or on `PATH`.
 
 ## How it works
@@ -182,10 +187,13 @@ for another, `--registry URL` for a mirror, `--platforms` to choose others: `lin
 2. Create the release `workbuddy-plugin-v<version>` on that commit with
    `dist/memorylake-plugin-<version>.zip` and its `.sha256` as assets (not
    marked latest: other tools read this repository's latest release).
-3. Put the entry the build printed (`version`, and `source` with the asset's
-   URL and SHA-256) into this repository's `.workbuddy-plugin/marketplace.json`
-   and merge that. From then on WorkBuddy installs the new release; until
-   then it keeps installing the one before.
+
+The build also prints a marketplace entry for the zip (an `archive` source:
+the address and the SHA-256). It is not in use: this repository's
+`.workbuddy-plugin/marketplace.json` points at this directory until the zip
+has an address that downloads quickly in mainland China. Then the entry goes
+there with that address, and a release gets a third step, merging the new
+entry.
 
 ## Development
 

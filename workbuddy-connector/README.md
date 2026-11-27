@@ -37,8 +37,9 @@ each is complete alone:
 | Connector only, automatic memory off | the connector | when the agent or the user decides |
 | Connector only, automatic memory on | the connector | automatic (the same hooks, installed by the page) |
 | Both | either | automatic, by the plugin; the page installs nothing, writes the switches, and the connector's hooks stand down |
-The `source` differs from the MCP connector's because WorkBuddy requires it
-to be globally unique.
+Both connectors declare the same `source` today. WorkBuddy requires it to be
+globally unique, so one of them has to take another before both can be
+listed.
 
 ## Layout
 
