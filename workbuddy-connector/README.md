@@ -248,6 +248,20 @@ Details that matter:
 - The CLI's wait is bounded by what is left of WorkBuddy's five minutes,
   and stopping `login.mjs` (Cancel on the page, a timeout, or WorkBuddy
   killing it) stops the CLI with it.
+- When a login fails after the browser came back (MemoryLake refused it,
+  or the CLI could not reach MemoryLake to finish it), the reason shows in
+  three places: on the MemoryLake tab, which the CLI answers with the
+  reason rather than pointing at a terminal WorkBuddy does not have; on this
+  page, with the first cause and the root cause (`could not connect … (invalid
+  peer certificate: UnknownIssuer)`); and, whole, in
+  `~/.memorylake/harness/logs/workbuddy-connect.log`, as is a refused key.
+  That log is what to ask a user for.
+- The CLI reaches MemoryLake the way the browser does: it trusts the
+  system's certificate store as well as its own roots, and uses the system
+  proxy when no `HTTPS_PROXY` is set. Before that, a network that inspects
+  HTTPS (a company gateway, some antivirus software) or that only lets
+  traffic out through the system proxy let the browser sign in and then
+  failed the CLI's request that finishes the login.
 - A key from browser login expires (90 days by default). `auth status` then
   says so, and the entry skill tells the agent to ask for a reconnect.
 - A login already on the computer (another MemoryLake tool's, or an earlier
@@ -421,7 +435,17 @@ disconnects:
 node dev/test-auto-memory.mjs
 ```
 
-A computer that already had the CLI, logged in, has a third: WorkBuddy's
+Browser login has one: against the stand-in, a login that fails after the
+browser came back (a team that may not create keys) must say why in the
+MemoryLake tab and on the page and leave the whole of it in the log, and a
+login that works must reach the workspace step. It needs a CLI whose
+failure page gives the reason:
+
+```bash
+node dev/test-browser-login.mjs
+```
+
+A computer that already had the CLI, logged in, has a fourth: WorkBuddy's
 `status` must still say not connected, the page must offer to keep the login
 or use another account, an older CLI at `~/.memorylake/bin` must be replaced
 and a newer one kept, and disconnecting must log out only a login the page

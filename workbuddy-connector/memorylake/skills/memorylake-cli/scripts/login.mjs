@@ -83,10 +83,37 @@ function failureText(result, secret) {
   if (secret) text = text.split(secret).join("***");
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   // The CLI prints "Error: <what it was doing>", then "Caused by:" and the
-  // root cause, then the raw response. The root cause is the useful line.
+  // causes, numbered when there are several, then the raw response. The first
+  // cause says what failed; the last numbered one often says why (a
+  // certificate this computer does not trust, say), so it is kept too.
   const cause = lines.indexOf("Caused by:");
-  const line = cause >= 0 && lines[cause + 1] ? lines[cause + 1] : lines.find((l) => /^Error:/.test(l)) || lines.at(-1);
+  let line = cause >= 0 && lines[cause + 1] ? lines[cause + 1] : lines.find((l) => /^Error:/.test(l)) || lines.at(-1);
+  if (cause >= 0) {
+    const chain = [];
+    for (const next of lines.slice(cause + 1)) {
+      const numbered = next.match(/^\d+:\s*(.*)$/);
+      if (!numbered) break;
+      chain.push(numbered[1]);
+    }
+    if (chain.length) {
+      line = chain[0];
+      const root = chain.at(-1);
+      if (chain.length > 1 && !line.includes(root)) line = `${line} (${root})`;
+    }
+  }
   return (line || "the memorylake command failed").replace(/^Error:\s*/, "").slice(0, 300);
+}
+
+/**
+ * Keep the whole of a failure in a log on this computer. The page shows one
+ * line, and only to whoever is still looking at it; this is what to ask a
+ * user for when connecting did not work.
+ */
+async function logFailure(what, text) {
+  const logs = join(HARNESS_HOME, "logs");
+  await mkdir(logs, { recursive: true }).catch(() => {});
+  const body = String(text || "").trim().split(/\r?\n/).map((line) => `  ${line}`).join("\n");
+  await writeFile(join(logs, "workbuddy-connect.log"), `${new Date().toISOString()} ${what}\n${body}\n`, { flag: "a" }).catch(() => {});
 }
 
 /** Whether a failed login was the server refusing the key, not a network fault. */
@@ -256,6 +283,7 @@ function startBrowserLogin(target) {
       } else {
         current.state = "failed";
         current.error = failureText({ stdout: current.stdout, stderr: current.stderr });
+        logFailure(`browser login to ${target.baseUrl} failed (exit ${code})`, current.stderr || current.stdout);
       }
       settle({ ok: false, error: current.error || "the login ended before the browser was opened" });
     });
@@ -884,7 +912,10 @@ const handlers = {
     // takes one without a terminal. It is visible to this user's own
     // processes for the moment the command runs.
     const result = await cli(["auth", "login", "--api-key", key, "--base-url", target.baseUrl]);
-    if (result.code !== 0) return { ok: false, refused: keyRefused(result), error: failureText(result, key) };
+    if (result.code !== 0) {
+      await logFailure(`key login to ${target.baseUrl} failed (exit ${result.code})`, (result.stderr || result.stdout).split(key).join("***"));
+      return { ok: false, refused: keyRefused(result), error: failureText(result, key) };
+    }
     await markConnected(true);
     return { ok: true, ...(await afterLogin()) };
   },
