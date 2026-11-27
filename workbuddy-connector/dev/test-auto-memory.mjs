@@ -128,7 +128,7 @@ try {
   both.enabledPlugins["memorylake@memorylake"] = true;
   writeFileSync(settings, JSON.stringify(both, null, 2));
   assert.equal(hook("prompt-submit", { cwd: root, session_id: "s1", prompt: "hi" }).stdout, "");
-  assert.deepEqual(await call("autoScan"), { ok: true, state: "plugin" });
+  assert.deepEqual(await call("autoScan"), { ok: true, state: "plugin", settings: ALL_ON });
   writeFileSync(settings, before);
 
   // A reconnect shows the switches as they are, installs again and leaves the

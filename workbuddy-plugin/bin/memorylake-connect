@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+// memorylake-connect: open MemoryLake's sign-in page in the user's browser.
+// The work is in ../scripts/connect.mjs. (A file with no extension is
+// CommonJS to Node, hence import() rather than an import statement.)
+const { pathToFileURL } = require("node:url");
+const path = require("node:path");
+import(pathToFileURL(path.join(__dirname, "..", "scripts", "connect.mjs")).href);

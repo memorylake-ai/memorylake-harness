@@ -16,6 +16,7 @@
 //     weakly calibrated, and a model shown the number treats it as authority.
 //     Nor are hits dropped below a threshold: that kills real ones.
 import { findCli, loadConfig, projectIds, runCli, tailLine } from "./common.mjs";
+import { REPAIR } from "./host.mjs";
 
 const PROG = "ml-recall";
 const USAGE = `usage: ${PROG} <query> [--top-k N]
@@ -24,7 +25,6 @@ Searches MemoryLake for memories written from any project, machine, or client.
 Write the query as statement-style keywords with pronouns resolved and relative
 dates made absolute.
 `;
-const RECONNECT = "ask the user to reconnect the MemoryLake connector in WorkBuddy's connector list";
 
 class Exit extends Error {
   constructor(code, stderr = "") {
@@ -97,10 +97,10 @@ export function recall(args) {
     if (!query) throw new Exit(2, USAGE);
     if (!/^\d+$/.test(topK)) throw new Exit(2, `${PROG}: --top-k must be a positive integer\n`);
 
-    if (!findCli()) throw fail("CLI_NOT_FOUND", `the 'memorylake' binary is not installed; ${RECONNECT}`);
+    if (!findCli()) throw fail("CLI_NOT_FOUND", `the 'memorylake' binary is not installed; ${REPAIR}`);
     const config = loadConfig(process.cwd());
     if (!config) {
-      throw fail("NOT_CONFIGURED", `no global config (~/.memorylake/harness/config.md) and no project .claude/memorylake.local.md with a workspace; ${RECONNECT} and turn on automatic memory`);
+      throw fail("NOT_CONFIGURED", `no global config (~/.memorylake/harness/config.md) and no project .claude/memorylake.local.md with a workspace; ${REPAIR} and turn on automatic memory`);
     }
 
     // Without --projects the endpoint returns no document hits at all.

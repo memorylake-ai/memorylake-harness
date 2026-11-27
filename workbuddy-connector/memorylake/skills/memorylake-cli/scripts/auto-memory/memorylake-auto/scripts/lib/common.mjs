@@ -1,11 +1,9 @@
-// Shared helpers for the MemoryLake connector's automatic memory.
+// Shared helpers for MemoryLake's automatic memory in WorkBuddy, which the
+// connector and the plugin both carry.
 //
-// A port to Node of the MemoryLake plugin's hooks (workbuddy-plugin/scripts,
-// bash and jq). The plugin can ask its users for bash and jq; the connector
-// cannot: it is installed with one click, often on Windows, on a computer
-// that has neither. WorkBuddy always has Node for a connector that declares
-// `runtime: node`, so Node's own modules are all this uses. No git, jq, perl
-// or shell either.
+// Either is installed with one click, often on Windows, on a computer that
+// has no bash, jq, git or perl. WorkBuddy runs hooks with Node, so Node's own
+// modules are all this uses.
 //
 // Every harness on a computer shares ONE identity and data tree,
 // ~/.memorylake/harness/, so what is computed here (the project a folder
@@ -17,6 +15,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cliDirs } from "./host.mjs";
 
 const WINDOWS = process.platform === "win32";
 
@@ -230,17 +229,14 @@ function launch(found) {
 let cliCache;
 /**
  * The CLI to run, as [program, ...leading arguments], or null when there is
- * none. In order: WorkBuddy's own tools directory, where the connector
- * installs it (a hook's PATH may not include it, and an older memorylake
- * elsewhere must not win); then PATH; then the copy the sign-in page leaves
- * in ~/.memorylake/bin.
+ * none. In order: where this packaging keeps its own (cliDirs in host.mjs);
+ * then PATH; then the copy the sign-in page leaves in ~/.memorylake/bin.
  */
 export function findCli() {
   if (cliCache !== undefined) return cliCache;
   const names = WINDOWS ? ["memorylake.exe", "memorylake.cmd"] : ["memorylake"];
-  const tools = path.join(process.env.CODEBUDDY_CONFIG_DIR || path.join(os.homedir(), ".workbuddy"), "binaries", "node", "cli-connector-packages");
   const dirs = [
-    WINDOWS ? tools : path.join(tools, "bin"),
+    ...cliDirs(),
     ...(process.env.PATH || "").split(path.delimiter).filter(Boolean),
     binDir(),
   ];

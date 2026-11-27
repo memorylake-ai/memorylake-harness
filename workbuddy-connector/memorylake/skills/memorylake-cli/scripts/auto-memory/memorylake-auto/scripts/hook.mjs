@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Runs one hook of the MemoryLake connector's automatic memory:
+// Runs one hook of MemoryLake's automatic memory in WorkBuddy:
 //
 //   node hook.mjs session-start|prompt-submit|recall-gate|sync-turn|sync-attachments
 //
@@ -14,13 +14,12 @@
 // started on its own (see inBackground in lib/common.mjs). Session start does
 // the same with `flush`, which sends whatever earlier sessions left queued.
 //
-// The MemoryLake plugin for WorkBuddy does the same job with hooks of its own. When
-// it is enabled these stand down; otherwise every turn would be reminded and
-// synced twice.
+// Whether these hooks should act at all is the packaging's to say (standDown
+// in lib/host.mjs).
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { ageSeconds, dataDir, inBackground, lock, mkdirp, readJson, recalledSession, rememberSession, sessionDir, stateDir } from "./lib/common.mjs";
+import { standDown } from "./lib/host.mjs";
 import { promptSubmit } from "./lib/prompt-submit.mjs";
 import { recallGate } from "./lib/recall-gate.mjs";
 import { sessionStart } from "./lib/session-start.mjs";
@@ -49,15 +48,6 @@ function log(name, error) {
     mkdirp(dir);
     fs.appendFileSync(path.join(dir, "workbuddy-hooks.log"), `${new Date().toISOString()} ${name}: ${error?.stack || error}\n`);
   } catch {}
-}
-
-function pluginEnabled() {
-  const config = process.env.CODEBUDDY_CONFIG_DIR || path.join(os.homedir(), ".workbuddy");
-  try {
-    return /"memorylake@memorylake"\s*:\s*true/.test(fs.readFileSync(path.join(config, "settings.json"), "utf8"));
-  } catch {
-    return false;
-  }
 }
 
 async function readStdin() {
@@ -103,7 +93,7 @@ function flush() {
 
 const name = process.argv[2];
 try {
-  if (pluginEnabled()) {
+  if (standDown()) {
     // Standing down.
   } else if (HOOKS[name] || STOP[name]) {
     let input = {};
