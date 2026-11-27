@@ -59,6 +59,8 @@ createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/oauth2/cli/api-keys") {
     if (!tokens.delete(bearer(req))) return send(401, { error: "invalid_token", error_description: "token unknown or already used" });
+    // A team where this account may not create keys: the login fails after the browser came back.
+    if (process.env.MOCK_KEYS_FORBIDDEN) return send(403, { error: "access_denied", error_description: "no permission to create API keys" });
     const { name, device } = JSON.parse((await readBody(req)) || "{}");
     const key = `sk-mock-${randomBytes(8).toString("hex")}`;
     const id = String(nextId++);
